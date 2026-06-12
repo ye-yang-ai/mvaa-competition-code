@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -39,6 +40,15 @@ PRED_DIR = SUBMISSION_TASK_DIR
 OUTPUT_JSON = SUBMISSION_TASK_DIR / "task1_predictions.json"
 NUM_WORKERS = 0
 # ==============================
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Generate Task1 submission predictions.")
+    parser.add_argument("--ckpt-path", type=Path, default=CKPT_PATH)
+    parser.add_argument("--data-dir", type=Path, default=DATA_DIR)
+    parser.add_argument("--submission-task-dir", type=Path, default=SUBMISSION_TASK_DIR)
+    parser.add_argument("--num-workers", type=int, default=NUM_WORKERS)
+    return parser.parse_args()
 
 
 def discover_images(folder: str | Path) -> List[Dict[str, str]]:
@@ -149,10 +159,11 @@ def resize_mask_to_shape(mask: np.ndarray, out_shape: Tuple[int, int, int]) -> n
 
 @torch.no_grad()
 def main() -> int:
-    ckpt_path = CKPT_PATH
-    data_dir = DATA_DIR
-    pred_dir = PRED_DIR
-    output_json = OUTPUT_JSON
+    args = parse_args()
+    ckpt_path = args.ckpt_path
+    data_dir = args.data_dir
+    pred_dir = args.submission_task_dir
+    output_json = args.submission_task_dir / "task1_predictions.json"
     output_json.parent.mkdir(parents=True, exist_ok=True)
     pred_dir.mkdir(parents=True, exist_ok=True)
 
@@ -166,7 +177,7 @@ def main() -> int:
     target_spacing = train_args.get("target_spacing", [0.5, 0.5, 0.5])
 
     files = discover_images(data_dir)
-    loader = build_loader(files, enable_spacing_resample, target_spacing, NUM_WORKERS)
+    loader = build_loader(files, enable_spacing_resample, target_spacing, args.num_workers)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = get_model(

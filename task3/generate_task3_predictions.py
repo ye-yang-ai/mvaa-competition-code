@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -30,6 +31,20 @@ USE_TTA = True
 AMP = True
 DEVICE = "auto"  # "auto" | "cuda" | "cpu"
 # ==============================
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Generate Task3 submission predictions.")
+    parser.add_argument("--ckpt-path", type=Path, default=CKPT_PATH)
+    parser.add_argument("--data-dir", type=Path, default=DATA_DIR)
+    parser.add_argument("--submission-task-dir", type=Path, default=SUBMISSION_TASK_DIR)
+    parser.add_argument("--video-folders", nargs="*", default=VIDEO_FOLDERS)
+    parser.add_argument("--device", choices=["auto", "cuda", "cpu"], default=DEVICE)
+    parser.add_argument("--tta", action="store_true", default=USE_TTA)
+    parser.add_argument("--no-tta", action="store_false", dest="tta")
+    parser.add_argument("--amp", action="store_true", default=AMP)
+    parser.add_argument("--no-amp", action="store_false", dest="amp")
+    return parser.parse_args()
 
 
 def discover_images(folder: str | Path, exts: List[str], video_folders: List[str]) -> List[Dict[str, str]]:
@@ -122,10 +137,11 @@ def predict_probs(model, image_t: torch.Tensor, use_amp: bool, use_tta: bool) ->
 
 @torch.no_grad()
 def main() -> int:
-    ckpt_path = CKPT_PATH
-    data_dir = DATA_DIR
-    pred_dir = PRED_DIR
-    output_json = OUTPUT_JSON
+    args = parse_args()
+    ckpt_path = args.ckpt_path
+    data_dir = args.data_dir
+    pred_dir = args.submission_task_dir
+    output_json = args.submission_task_dir / "task3_predictions.json"
 
     output_json.parent.mkdir(parents=True, exist_ok=True)
     pred_dir.mkdir(parents=True, exist_ok=True)
@@ -142,9 +158,9 @@ def main() -> int:
     target_label = int(train_args.get("target_label", 10))
     threshold = float(ckpt.get("val_metrics", {}).get("val_threshold", 0.5))
 
-    files = discover_images(data_dir, IMAGE_EXTS, VIDEO_FOLDERS)
-    device = pick_device(DEVICE)
-    use_amp = bool(AMP) and device.type == "cuda"
+    files = discover_images(data_dir, IMAGE_EXTS, args.video_folders)
+    device = pick_device(args.device)
+    use_amp = bool(args.amp) and device.type == "cuda"
 
     model = get_model(
         arch=arch,
@@ -163,8 +179,8 @@ def main() -> int:
     print(f"Checkpoint: {ckpt_path}")
     print(f"Input images: {len(files)}")
     print(f"Save labels to: {pred_dir}")
-    print(f"Threshold: {threshold:.4f} | TTA={USE_TTA}")
-    print(f"Video folders: {VIDEO_FOLDERS if VIDEO_FOLDERS else '[ALL]'}")
+    print(f"Threshold: {threshold:.4f} | TTA={args.tta}")
+    print(f"Video folders: {args.video_folders if args.video_folders else '[ALL]'}")
 
     records = []
     total = len(files)
@@ -181,7 +197,7 @@ def main() -> int:
         if use_imagenet_norm:
             image_t = (image_t - norm_mean) / norm_std
 
-        probs = predict_probs(model=model, image_t=image_t, use_amp=use_amp, use_tta=bool(USE_TTA))
+        probs = predict_probs(model=model, image_t=image_t, use_amp=use_amp, use_tta=bool(args.tta))
         pred_small = (probs > threshold).float()
         pred_orig = F.interpolate(pred_small, size=(h, w), mode="nearest")
         pred_mask = (pred_orig[0, 0].detach().cpu().numpy() > 0.5).astype(np.uint8)
