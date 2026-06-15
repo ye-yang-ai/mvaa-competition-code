@@ -1,6 +1,6 @@
 # MVAA 服务器运行命令 Bash
 
-本文档只记录 Linux 服务器 bash 写法。bash 使用 `/` 路径和反斜杠 `\` 换行，不要使用 PowerShell 的反引号 `` ` ``。
+本文档只记录 Linux 服务器 bash 写法。bash 使用 `/` 路径和反斜杠 `\` 换行，不要使用 PowerShell 的反引号 ```。
 
 默认前提：
 
@@ -144,7 +144,7 @@ ls -la outputs/quick/task2/checkpoints
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 python task2/generate_task2_predictions.py \
-  --ckpt-path outputs/quick/task2/checkpoints/best_model.pt \
+  --ckpt-path outputs/exp/task2_large_e150_b1_roi160_c2_lr3e4_score525/checkpoints/best_model.pt \
   --data-dir data/reference_data/t2_tee/val/images \
   --submission-task-dir outputs/quick/submission/t2_tee \
   --num-workers 0
@@ -198,7 +198,7 @@ ls -la outputs/quick/task3/checkpoints
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 python task3/generate_task3_predictions.py \
-  --ckpt-path outputs/quick/task3/checkpoints/best.pt \
+  --ckpt-path outputs/exp/task3_unetpp_res34_none_e120_bs4_512x896_sup/checkpoints/best.pt \
   --data-dir data/reference_data/t3_vid/val/images \
   --submission-task-dir outputs/quick/submission/t3_vid \
   --no-tta
@@ -227,7 +227,7 @@ python scripts/package_submission.py \
 检查 zip 结构：
 
 ```bash
-tar -tf outputs/quick/submission.zip | head -30
+unzip -l outputs/quick/submission.zip | head -150
 ```
 
 上传文件：
@@ -235,3 +235,4 @@ tar -tf outputs/quick/submission.zip | head -30
 ```text
 outputs/quick/submission.zip
 ```
+

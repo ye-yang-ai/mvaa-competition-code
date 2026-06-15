@@ -163,3 +163,39 @@ CUDA_VISIBLE_DEVICES=2 python task1/train.py \
     --early-stop-patience 30
 ```
 
+```bash
+  CUDA_VISIBLE_DEVICES=0 python task1/train.py \
+    --data-root data/reference_data/t1_ct \
+    --output-dir outputs/exp/task1_large_e100_b1_c2_u05_thr07 \
+    --epochs 100 \
+    --batch-size 1 \
+    --roi-size 128 128 128 \
+    --train-crops 2 \
+    --sw-batch-size 1 \
+    --val-interval 2 \
+    --num-workers 0 \
+    --model-size large \
+    --unsup-warmup-epochs 20 \
+    --unsup-rampup-epochs 30 \
+    --unsup-weight 0.5 \
+    --pseudo-threshold 0.7
+```
+
+
+  CUDA_VISIBLE_DEVICES=3 python task2/train.py \
+    --data-dir data/reference_data/t2_tee/train \
+    --output-dir outputs/exp/task2_large_e150_b1_roi160_c2_lr3e4_score525 \
+    --epochs 150 \
+    --batch-size 1 \
+    --roi-size 160 160 160 \
+    --train-crops 2 \
+    --sw-batch-size 1 \
+    --val-interval 2 \
+    --val-count 20 \
+    --num-workers 0 \
+    --model-size large \
+    --lr 3e-4 \
+    --weight-decay 1e-5 \
+    --score-dsc-weight 0.5 \
+    --score-hd-weight 0.25 \
+    --score-asd-weight 0.25
