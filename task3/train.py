@@ -66,6 +66,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-train-samples", type=int, default=0, help="Debug only; 0 means all")
     parser.add_argument("--max-val-samples", type=int, default=0, help="Debug only; 0 means all")
     parser.add_argument("--max-unlabeled-samples", type=int, default=0, help="Debug only; 0 means all")
+    parser.add_argument("--pseudo-train-only", action="store_true", default=True, help="Keep _medsam2_pseudo samples out of internal validation.")
+    parser.add_argument("--no-pseudo-train-only", action="store_false", dest="pseudo_train_only")
 
     parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--weight-decay", type=float, default=1e-5)
@@ -80,6 +82,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--focal-gamma", type=float, default=2.0)
     parser.add_argument("--focal-alpha", type=float, default=0.75)
     parser.add_argument("--pos-weight", type=float, default=1.0)
+    parser.add_argument(
+        "--pseudo-supervised-weight",
+        type=float,
+        default=1.0,
+        help="Per-sample supervised loss weight for _medsam2_pseudo labels; 1.0 keeps previous behavior.",
+    )
+    parser.add_argument(
+        "--pseudo-sampling-weight",
+        type=float,
+        default=1.0,
+        help="Sampler weight multiplier for _medsam2_pseudo labels when foreground-balanced sampling is enabled.",
+    )
 
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--print-freq", type=int, default=20)
@@ -304,6 +318,24 @@ def compute_unsup_weight(epoch: int, semi_warmup_epochs: int, unsup_weight: floa
     return float(unsup_weight) * ratio
 
 
+def weighted_supervised_loss(
+    loss_fn,
+    logits: torch.Tensor,
+    labels: torch.Tensor,
+    sample_weights: torch.Tensor | None,
+) -> torch.Tensor:
+    if sample_weights is None:
+        return loss_fn(logits, labels)
+    weights = sample_weights.to(device=logits.device, dtype=logits.dtype).flatten()
+    if weights.numel() != logits.shape[0]:
+        raise ValueError(f"sample_weights length {weights.numel()} does not match batch size {logits.shape[0]}")
+    losses = []
+    for i in range(logits.shape[0]):
+        losses.append(loss_fn(logits[i : i + 1], labels[i : i + 1]))
+    per_sample_loss = torch.stack(losses)
+    return (per_sample_loss * weights).mean()
+
+
 def main() -> int:
     args = parse_args()
     seed_everything(int(args.seed))
@@ -331,11 +363,20 @@ def main() -> int:
     logger.info("Device=%s AMP=%s", device, use_amp)
 
     all_labeled = discover_samples(labeled_root)
+    pseudo_train_samples = []
+    split_labeled = all_labeled
+    if bool(args.pseudo_train_only):
+        pseudo_train_samples = [s for s in all_labeled if "_medsam2_pseudo" in str(s.image_path)]
+        split_labeled = [s for s in all_labeled if "_medsam2_pseudo" not in str(s.image_path)]
     train_samples, val_samples, train_video_ids, val_video_ids = split_train_val_by_video(
-        all_labeled,
+        split_labeled,
         val_video_count=int(args.val_video_count),
         seed=int(args.seed),
     )
+    if pseudo_train_samples:
+        train_samples = list(train_samples) + list(pseudo_train_samples)
+        pseudo_video_ids = sorted({s.video_id for s in pseudo_train_samples})
+        train_video_ids = sorted(set(train_video_ids).union(pseudo_video_ids))
     val_samples_all = list(val_samples)
     if int(args.max_train_samples) > 0:
         train_samples = train_samples[: int(args.max_train_samples)]
@@ -413,6 +454,15 @@ def main() -> int:
             min_weight=float(args.fg_sampling_min_weight),
             max_weight=float(args.fg_sampling_max_weight),
         )
+        if float(args.pseudo_sampling_weight) != 1.0:
+            pseudo_multiplier = torch.as_tensor(
+                [
+                    float(args.pseudo_sampling_weight) if "_medsam2_pseudo" in str(s.image_path) else 1.0
+                    for s in train_ds.samples
+                ],
+                dtype=weights.dtype,
+            )
+            weights = weights * pseudo_multiplier
         train_sampler = WeightedRandomSampler(
             weights=weights,
             num_samples=len(weights),
@@ -616,11 +666,20 @@ def main() -> int:
             sup_batch, train_iter = cycle_next(train_loader, train_iter)
             images = sup_batch["image"].to(device, non_blocking=True)
             labels = sup_batch["label"].to(device, non_blocking=True)
+            is_pseudo = sup_batch.get("is_pseudo")
+            sup_sample_weights = None
+            if is_pseudo is not None and float(args.pseudo_supervised_weight) != 1.0:
+                is_pseudo = is_pseudo.to(device, non_blocking=True).float().flatten()
+                sup_sample_weights = torch.where(
+                    is_pseudo > 0.5,
+                    torch.full_like(is_pseudo, float(args.pseudo_supervised_weight)),
+                    torch.ones_like(is_pseudo),
+                )
 
             optimizer.zero_grad(set_to_none=True)
             with torch.amp.autocast(device_type=device.type, enabled=use_amp):
                 logits_sup = model(images)
-                sup_loss = sup_loss_fn(logits_sup, labels)
+                sup_loss = weighted_supervised_loss(sup_loss_fn, logits_sup, labels, sup_sample_weights)
             with torch.no_grad():
                 batch_train_dice = dice_from_logits(logits_sup, labels, ignore_empty_gt=True)
 

@@ -331,6 +331,7 @@ class LabeledDataset(torch.utils.data.Dataset):
         return {
             "image": image_t,
             "label": mask_t,
+            "is_pseudo": torch.tensor(1.0 if "_medsam2_pseudo" in str(s.image_path) else 0.0, dtype=torch.float32),
             "video_id": s.video_id,
             "frame_idx": s.frame_idx,
             "image_path": str(s.image_path),
