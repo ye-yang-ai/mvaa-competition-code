@@ -53,6 +53,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--arch", type=str, default="unetplusplus", choices=["unet", "unetplusplus", "fpn", "deeplabv3plus"])
     parser.add_argument("--encoder-name", type=str, default="efficientnet-b4")
     parser.add_argument("--encoder-weights", type=str, default="none", choices=["none", "imagenet"])
+    parser.add_argument(
+        "--encoder-weights-path",
+        type=str,
+        default="",
+        help="Optional local encoder checkpoint path. When set, avoids online encoder weight downloads.",
+    )
     parser.add_argument("--target-label", type=int, default=10)
     parser.add_argument("--image-size", type=int, nargs=2, default=[448, 800], help="H W")
 
@@ -541,6 +547,7 @@ def main() -> int:
         arch=args.arch,
         encoder_name=args.encoder_name,
         encoder_weights=encoder_weights,
+        encoder_weights_path=args.encoder_weights_path or None,
         in_channels=3,
         classes=1,
     ).to(device)

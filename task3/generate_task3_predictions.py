@@ -149,9 +149,9 @@ def main() -> int:
     ckpt, train_args = load_ckpt_config(ckpt_path)
     arch = str(train_args.get("arch", "unetplusplus"))
     encoder_name = str(train_args.get("encoder_name", "resnet34"))
-    encoder_weights = train_args.get("encoder_weights", None)
-    if isinstance(encoder_weights, str) and encoder_weights.lower() == "none":
-        encoder_weights = None
+    # The checkpoint state fully initializes the model, so prediction should not
+    # trigger online pretrained-weight downloads even if training used ImageNet.
+    encoder_weights = None
 
     image_size = tuple(int(v) for v in train_args.get("image_size", [448, 800]))
     use_imagenet_norm = bool(train_args.get("use_imagenet_norm", True))
