@@ -609,3 +609,228 @@ outputs/medsam2_stageA/task3_debug/checkpoints/best.pt
 outputs/medsam2_stageA/task3_debug_submission/t3_vid/task3_predictions.json
 outputs/medsam2_stageA/task3_debug_submission/t3_vid/<video_folder>/*_label_bin.png
 ```
+
+## 15. 碎片化问题后续实验
+
+观察：
+
+```text
+task3_frozen 的预测 mask 不够连续，存在一小块一小块的碎片。
+```
+
+已新增后处理评估脚本：
+
+```text
+task3/evaluate_medsam2_postprocess.py
+```
+
+评估命令：
+
+```bash
+CUDA_VISIBLE_DEVICES=2 /home/wuyongji/miniconda3/envs/mvaa/bin/python \
+  task3/evaluate_medsam2_postprocess.py \
+  --run-dir outputs/medsam2_stageA/task3_frozen \
+  --device cuda \
+  --batch-size 4 \
+  --num-workers 0 \
+  --thresholds 0.2 0.3 0.4 \
+  --min-areas 0 100 400 \
+  --keep-components 0 1 2 \
+  --close-iters 0 1 \
+  --no-fill-holes
+```
+
+当前结果：
+
+```text
+Raw best:
+  threshold = 0.40
+  dice      = 0.6510
+  hd        = 130.10
+  asd       = 18.34
+  pred_pos  = 0.1213
+
+Post best:
+  threshold       = 0.20
+  min_area        = 400
+  keep_components = 2
+  close_iters     = 1
+  fill_holes      = false
+  dice            = 0.6599
+  hd              = 87.51
+  asd             = 17.96
+  pred_pos        = 0.1283
+```
+
+结论：
+
+```text
+后处理能改善 HD，并轻微提升 Dice，但提升幅度有限。
+碎片化问题不只是 mask 清理问题，decoder 表达能力也需要加强。
+```
+
+已新增 decoder v2：
+
+```text
+LightFPNDecoderV2
+```
+
+结构变化：
+
+```text
+v1: sum fusion + 2 conv blocks
+v2: concat fusion + residual conv blocks + stronger refine head
+```
+
+v2 forward smoke：
+
+```text
+input:  1 x 3 x 512 x 512
+output: 1 x 1 x 512 x 512
+trainable params: 1,575,809
+```
+
+v2 debug training 已通过：
+
+```bash
+CUDA_VISIBLE_DEVICES=2 /home/wuyongji/miniconda3/envs/mvaa/bin/python \
+  task3/train_medsam2_encoder.py \
+  --labeled-root data/t3_vid/train \
+  --output-dir outputs/medsam2_stageA/task3_decoder_v2_debug \
+  --epochs 1 \
+  --batch-size 2 \
+  --image-size 512 512 \
+  --decoder-version v2 \
+  --max-train-samples 8 \
+  --max-val-samples 4 \
+  --no-semi \
+  --num-workers 0 \
+  --no-val-tta \
+  --print-freq 1 \
+  --save-every 1
+```
+
+v2 预测脚本恢复 checkpoint 已通过。
+
+正式 v2 训练完成：
+
+```text
+run_dir: outputs/medsam2_stageA/task3_decoder_v2
+
+best_epoch:    6
+best_score:    0.4635135266855435
+best_val_dice: 0.6645892858505249
+best_val_hd:   90.83099365234375
+best_val_asd:  17.928552627563477
+threshold:     0.20
+```
+
+和 v1 对比：
+
+```text
+v1 task3_frozen:
+  best_epoch:    6
+  best_val_dice: 0.6654625535011292
+  best_val_hd:   104.75625610351562
+  best_val_asd:  17.102874755859375
+  threshold:     0.40
+
+v2 task3_decoder_v2:
+  best_epoch:    6
+  best_val_dice: 0.6645892858505249
+  best_val_hd:   90.83099365234375
+  best_val_asd:  17.928552627563477
+  threshold:     0.20
+```
+
+v2 后处理评估：
+
+```text
+Raw best:
+  threshold = 0.20
+  dice      = 0.6420
+  hd        = 97.85
+  asd       = 18.98
+  pred_pos  = 0.0980
+
+Post best:
+  threshold       = 0.20
+  min_area        = 0
+  keep_components = 0
+  close_iters     = 1
+  fill_holes      = false
+  dice            = 0.6421
+  hd              = 97.78
+  asd             = 18.95
+  pred_pos        = 0.0979
+```
+
+注意：后处理评估脚本当前未使用 TTA，因此 Dice 和训练日志中的 val Dice 不完全一致，适合用于同脚本下的横向比较。
+
+阶段性判断：
+
+```text
+1. v2 增强 decoder 后，Dice 没有超过 v1。
+2. v2 的 HD 比 v1 好，但 ASD 略差。
+3. v2 后处理收益几乎没有，说明碎片化/不连续问题不能靠简单形态学修复。
+4. 继续只加 decoder 容量的收益有限。
+```
+
+下一步建议进入 Stage B：
+
+```text
+frozen:   MedSAM2 trunk
+trainable: MedSAM2 neck + decoder
+```
+
+原因：
+
+```text
+当前 backbone_fpn 由 neck 产生。
+如果 frozen feature 对 Task3 域不够适配，只训练 decoder 很难恢复连续、稳定的目标结构。
+neck-only fine-tune 是比 full fine-tune 更稳的下一步。
+```
+
+## 16. 当前测试网站最优基准
+
+后续实验需要和测试网站上的当前最优提交对比，而不是只看内部 val split。
+
+当前最优提交指标：
+
+```text
+task1_ct:
+  DSC: 0.8218615271354927
+  HD:  5.606846043478218
+  ASD: 0.36295904757726943
+  num_cases: 30
+  missing_cases: 0
+
+task2_tee:
+  DSC: 0.7968176708654592
+  HD:  18.419442984555477
+  ASD: 1.0316021748510564
+  num_cases: 20
+  missing_cases: 0
+
+task3_vid:
+  DSC: 0.7617500534965712
+  HD:  91.84735430968526
+  ASD: 15.172139087804789
+  num_cases: 48
+  missing_cases: 0
+```
+
+Task3 当前优化目标：
+
+```text
+DSC > 0.7617500534965712
+HD  < 91.84735430968526
+ASD < 15.172139087804789
+```
+
+说明：
+
+```text
+内部 val split 只能用于开发选择方向。
+最终是否有效必须以测试网站 task3_vid 指标为准。
+```

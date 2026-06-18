@@ -391,6 +391,22 @@ MedSAM2 encoder Stage A val metrics
 MedSAM2 encoder Stage B val metrics
 ```
 
+当前测试网站最优提交指标需要作为最终对比基准：
+
+```text
+Task1 DSC 0.8218615271 | HD 5.6068460435  | ASD 0.3629590476
+Task2 DSC 0.7968176709 | HD 18.4194429846 | ASD 1.0316021749
+Task3 DSC 0.7617500535 | HD 91.8473543097 | ASD 15.1721390878
+```
+
+Task3 后续优化目标：
+
+```text
+DSC > 0.7617500535
+HD  < 91.8473543097
+ASD < 15.1721390878
+```
+
 ## 11. 最小落地顺序
 
 ```text

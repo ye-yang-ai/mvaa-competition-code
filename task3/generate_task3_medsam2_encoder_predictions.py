@@ -154,6 +154,7 @@ def main() -> int:
     encoder_cfg = str(train_args.get("encoder_cfg", DEFAULT_ENCODER_CFG))
     encoder_ckpt = str(train_args.get("encoder_ckpt", DEFAULT_ENCODER_CKPT))
     decoder_channels = int(train_args.get("decoder_channels", 128))
+    decoder_version = str(train_args.get("decoder_version", "v1"))
     freeze_encoder = bool(train_args.get("freeze_encoder", True))
 
     files = discover_images(data_dir, IMAGE_EXTS, args.video_folders)
@@ -164,6 +165,7 @@ def main() -> int:
         encoder_cfg=encoder_cfg,
         encoder_ckpt=encoder_ckpt,
         decoder_channels=decoder_channels,
+        decoder_version=decoder_version,
         freeze_encoder=freeze_encoder,
         device=device,
     ).to(device)

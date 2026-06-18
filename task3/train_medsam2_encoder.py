@@ -54,6 +54,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--encoder-cfg", type=str, default=DEFAULT_ENCODER_CFG)
     parser.add_argument("--encoder-ckpt", type=str, default=str(DEFAULT_ENCODER_CKPT))
     parser.add_argument("--decoder-channels", type=int, default=128)
+    parser.add_argument("--decoder-version", type=str, default="v1", choices=["v1", "v2"])
     parser.add_argument("--freeze-encoder", action="store_true", default=True)
     parser.add_argument("--no-freeze-encoder", action="store_false", dest="freeze_encoder")
     parser.add_argument("--no-semi", action="store_true", default=True, help="Accepted for Stage A command compatibility.")
@@ -470,6 +471,7 @@ def main() -> int:
         encoder_cfg=str(args.encoder_cfg),
         encoder_ckpt=str(args.encoder_ckpt),
         decoder_channels=int(args.decoder_channels),
+        decoder_version=str(args.decoder_version),
         freeze_encoder=bool(args.freeze_encoder),
         device=device,
     ).to(device)
