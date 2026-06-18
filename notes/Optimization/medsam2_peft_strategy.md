@@ -406,6 +406,20 @@ MedSAM2 encoder Stage B val metrics
 10. 和当前 Task3 baseline 对比，决定是否进入 Stage B
 ```
 
+当前 probe 已完成，MedSAM2 image encoder 在 Task3 RGB frame 上输出：
+
+```text
+backbone_fpn[0]: B x 256 x H/4  x W/4
+backbone_fpn[1]: B x 256 x H/8  x W/8
+backbone_fpn[2]: B x 256 x H/16 x W/16
+```
+
+Task3 Stage A 的详细实现计划记录在：
+
+```text
+notes/Optimization/opt_log/task3_medsam2_stageA_implementation.md
+```
+
 第一版实现边界：
 
 ```text
