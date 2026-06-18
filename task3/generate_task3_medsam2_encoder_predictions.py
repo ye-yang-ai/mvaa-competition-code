@@ -155,7 +155,12 @@ def main() -> int:
     encoder_ckpt = str(train_args.get("encoder_ckpt", DEFAULT_ENCODER_CKPT))
     decoder_channels = int(train_args.get("decoder_channels", 128))
     decoder_version = str(train_args.get("decoder_version", "v1"))
-    freeze_encoder = bool(train_args.get("freeze_encoder", True))
+    encoder_train_mode = str(
+        train_args.get(
+            "encoder_train_mode",
+            "frozen" if bool(train_args.get("freeze_encoder", True)) else "full",
+        )
+    )
 
     files = discover_images(data_dir, IMAGE_EXTS, args.video_folders)
     device = pick_device(args.device)
@@ -166,7 +171,7 @@ def main() -> int:
         encoder_ckpt=encoder_ckpt,
         decoder_channels=decoder_channels,
         decoder_version=decoder_version,
-        freeze_encoder=freeze_encoder,
+        encoder_train_mode=encoder_train_mode,
         device=device,
     ).to(device)
     load_state_dict(model, ckpt)

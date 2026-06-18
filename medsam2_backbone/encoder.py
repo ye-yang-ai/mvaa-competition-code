@@ -17,29 +17,46 @@ class MedSAM2ImageEncoder(nn.Module):
         self,
         cfg: str = DEFAULT_ENCODER_CFG,
         ckpt_path: str | Path = DEFAULT_ENCODER_CKPT,
-        freeze: bool = True,
+        train_mode: str = "frozen",
         device: torch.device | str = "cpu",
     ) -> None:
         super().__init__()
-        self.freeze = bool(freeze)
         self.image_encoder = build_medsam2_image_encoder(cfg=cfg, ckpt_path=ckpt_path, device=device)
-        self.set_freeze(self.freeze)
+        self.set_train_mode(train_mode)
 
-    def set_freeze(self, freeze: bool) -> None:
-        self.freeze = bool(freeze)
+    def set_train_mode(self, train_mode: str) -> None:
+        mode = str(train_mode).lower()
+        if mode not in {"frozen", "neck", "full"}:
+            raise ValueError(f"Unsupported encoder train mode: {train_mode}")
+        self.train_mode = mode
+
         for param in self.image_encoder.parameters():
-            param.requires_grad_(not self.freeze)
-        if self.freeze:
+            param.requires_grad_(False)
+
+        if mode == "neck":
+            for param in self.image_encoder.neck.parameters():
+                param.requires_grad_(True)
+        elif mode == "full":
+            for param in self.image_encoder.parameters():
+                param.requires_grad_(True)
+
+        if mode == "frozen":
             self.image_encoder.eval()
+        elif mode == "neck":
+            self.image_encoder.trunk.eval()
+            self.image_encoder.neck.train()
 
     def train(self, mode: bool = True):
         super().train(mode)
-        if self.freeze:
+        if self.train_mode == "frozen":
             self.image_encoder.eval()
+        elif self.train_mode == "neck":
+            self.image_encoder.trunk.eval()
+            self.image_encoder.neck.train(mode)
         return self
 
     def forward(self, x: torch.Tensor) -> list[torch.Tensor]:
-        if self.freeze:
+        if self.train_mode == "frozen":
             with torch.no_grad():
                 out = self.image_encoder(x)
         else:

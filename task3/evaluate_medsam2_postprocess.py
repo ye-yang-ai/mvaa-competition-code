@@ -93,8 +93,13 @@ def load_model(ckpt_path: Path, device: torch.device):
         encoder_cfg=str(train_args.get("encoder_cfg", DEFAULT_ENCODER_CFG)),
         encoder_ckpt=str(train_args.get("encoder_ckpt", DEFAULT_ENCODER_CKPT)),
         decoder_channels=int(train_args.get("decoder_channels", 128)),
-        freeze_encoder=bool(train_args.get("freeze_encoder", True)),
         decoder_version=str(train_args.get("decoder_version", "v1")),
+        encoder_train_mode=str(
+            train_args.get(
+                "encoder_train_mode",
+                "frozen" if bool(train_args.get("freeze_encoder", True)) else "full",
+            )
+        ),
         device=device,
     ).to(device)
     state = ckpt.get("model_state", ckpt)

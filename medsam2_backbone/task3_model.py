@@ -21,16 +21,20 @@ class Task3MedSAM2EncoderSeg(nn.Module):
         encoder_ckpt: str | Path = DEFAULT_ENCODER_CKPT,
         decoder_channels: int = 128,
         decoder_version: str = "v1",
-        freeze_encoder: bool = True,
+        encoder_train_mode: str = "frozen",
+        freeze_encoder: bool | None = None,
         device: torch.device | str = "cpu",
     ) -> None:
         super().__init__()
-        self.freeze_encoder = bool(freeze_encoder)
+        if freeze_encoder is not None:
+            encoder_train_mode = "frozen" if bool(freeze_encoder) else "full"
+        self.encoder_train_mode = str(encoder_train_mode).lower()
+        self.freeze_encoder = self.encoder_train_mode == "frozen"
         self.decoder_version = str(decoder_version).lower()
         self.encoder = MedSAM2ImageEncoder(
             cfg=encoder_cfg,
             ckpt_path=encoder_ckpt,
-            freeze=freeze_encoder,
+            train_mode=self.encoder_train_mode,
             device=device,
         )
         if self.decoder_version == "v1":
@@ -50,8 +54,10 @@ class Task3MedSAM2EncoderSeg(nn.Module):
 
     def train(self, mode: bool = True):
         super().train(mode)
-        if self.freeze_encoder:
+        if self.encoder_train_mode == "frozen":
             self.encoder.eval()
+        elif self.encoder_train_mode == "neck":
+            self.encoder.train(mode)
         return self
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

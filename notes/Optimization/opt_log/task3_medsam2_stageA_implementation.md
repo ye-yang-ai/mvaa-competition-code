@@ -791,6 +791,88 @@ trainable: MedSAM2 neck + decoder
 neck-only fine-tune 是比 full fine-tune 更稳的下一步。
 ```
 
+## 17. Stage B neck-only fine-tune 实现
+
+已将训练模式从布尔开关扩展为：
+
+```text
+--encoder-train-mode frozen | neck | full
+```
+
+模式含义：
+
+```text
+frozen:
+  trainable: decoder
+  frozen:    MedSAM2 trunk + neck
+
+neck:
+  trainable: MedSAM2 neck + decoder
+  frozen:    MedSAM2 trunk
+
+full:
+  trainable: MedSAM2 trunk + neck + decoder
+```
+
+新增参数：
+
+```text
+--encoder-lr
+```
+
+Stage B 第一版选择：
+
+```text
+--encoder-train-mode neck
+--decoder-version v1
+--lr 1e-3
+--encoder-lr 1e-5
+```
+
+参数冻结检查已通过：
+
+```text
+trainable trunk:   0
+trainable neck:    369,664
+trainable decoder: 394,241
+trainable total:   763,905
+```
+
+Stage B debug training 已通过：
+
+```bash
+CUDA_VISIBLE_DEVICES=2 /home/wuyongji/miniconda3/envs/mvaa/bin/python \
+  task3/train_medsam2_encoder.py \
+  --labeled-root data/t3_vid/train \
+  --output-dir outputs/medsam2_stageB/task3_neck_v1_debug \
+  --epochs 1 \
+  --batch-size 2 \
+  --image-size 512 512 \
+  --decoder-version v1 \
+  --encoder-train-mode neck \
+  --lr 1e-3 \
+  --encoder-lr 1e-5 \
+  --max-train-samples 8 \
+  --max-val-samples 4 \
+  --no-semi \
+  --num-workers 0 \
+  --no-val-tta \
+  --print-freq 1 \
+  --save-every 1
+```
+
+debug 结果：
+
+```text
+train_loss: 0.6009
+train_dice: 0.2153
+val_loss:   0.5096
+val_dice:   0.6103
+threshold:  0.20
+```
+
+Stage B checkpoint prediction smoke 已通过。
+
 ## 16. 当前测试网站最优基准
 
 后续实验需要和测试网站上的当前最优提交对比，而不是只看内部 val split。

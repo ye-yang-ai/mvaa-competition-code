@@ -55,6 +55,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--encoder-ckpt", type=str, default=str(DEFAULT_ENCODER_CKPT))
     parser.add_argument("--decoder-channels", type=int, default=128)
     parser.add_argument("--decoder-version", type=str, default="v1", choices=["v1", "v2"])
+    parser.add_argument("--encoder-train-mode", type=str, default="frozen", choices=["frozen", "neck", "full"])
     parser.add_argument("--freeze-encoder", action="store_true", default=True)
     parser.add_argument("--no-freeze-encoder", action="store_false", dest="freeze_encoder")
     parser.add_argument("--no-semi", action="store_true", default=True, help="Accepted for Stage A command compatibility.")
@@ -72,6 +73,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-val-samples", type=int, default=0, help="Debug only; 0 means all")
 
     parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--encoder-lr", type=float, default=1e-5)
     parser.add_argument("--weight-decay", type=float, default=1e-5)
     parser.add_argument("--min-lr", type=float, default=1e-6)
     parser.add_argument("--warmup-epochs", type=int, default=3)
@@ -277,11 +279,22 @@ def evaluate(
 
 
 def build_optimizer(model: Task3MedSAM2EncoderSeg, args: argparse.Namespace) -> torch.optim.Optimizer:
-    if bool(args.freeze_encoder):
-        params = model.decoder.parameters()
+    mode = str(args.encoder_train_mode).lower()
+    if mode == "frozen":
+        params = [{"params": model.decoder.parameters(), "lr": float(args.lr), "name": "decoder"}]
+    elif mode == "neck":
+        params = [
+            {"params": model.decoder.parameters(), "lr": float(args.lr), "name": "decoder"},
+            {"params": model.encoder.image_encoder.neck.parameters(), "lr": float(args.encoder_lr), "name": "encoder_neck"},
+        ]
+    elif mode == "full":
+        params = [
+            {"params": model.decoder.parameters(), "lr": float(args.lr), "name": "decoder"},
+            {"params": model.encoder.image_encoder.parameters(), "lr": float(args.encoder_lr), "name": "encoder"},
+        ]
     else:
-        params = (p for p in model.parameters() if p.requires_grad)
-    return torch.optim.AdamW(params, lr=float(args.lr), weight_decay=float(args.weight_decay))
+        raise ValueError(f"Unsupported encoder_train_mode: {args.encoder_train_mode}")
+    return torch.optim.AdamW(params, weight_decay=float(args.weight_decay))
 
 
 def save_checkpoint(
@@ -315,6 +328,9 @@ def main() -> int:
     args = parse_args()
     seed_everything(int(args.seed))
     args.model_type = "medsam2_encoder"
+    if args.freeze_encoder is False and args.encoder_train_mode == "frozen":
+        args.encoder_train_mode = "full"
+    args.freeze_encoder = str(args.encoder_train_mode).lower() == "frozen"
 
     image_size = (int(args.image_size[0]), int(args.image_size[1]))
     if image_size[0] % 32 != 0 or image_size[1] % 32 != 0:
@@ -323,7 +339,7 @@ def main() -> int:
     out_dir = ensure_dir(args.output_dir)
     ckpt_dir = ensure_dir(out_dir / "checkpoints")
     logger = setup_logger(out_dir, log_name="train.log")
-    logger.info("Start Task3 MedSAM2 encoder Stage A training")
+    logger.info("Start Task3 MedSAM2 encoder training")
     logger.info("Args: %s", vars(args))
 
     labeled_root = Path(args.labeled_root)
@@ -472,7 +488,7 @@ def main() -> int:
         encoder_ckpt=str(args.encoder_ckpt),
         decoder_channels=int(args.decoder_channels),
         decoder_version=str(args.decoder_version),
-        freeze_encoder=bool(args.freeze_encoder),
+        encoder_train_mode=str(args.encoder_train_mode),
         device=device,
     ).to(device)
     total_params, trainable_params = count_params(model)
