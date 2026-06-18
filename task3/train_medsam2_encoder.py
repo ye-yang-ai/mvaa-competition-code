@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Task3 Stage A training: frozen MedSAM2 image encoder + LightFPNDecoder."""
+"""Task3 MedSAM2 image encoder training with optional semi-supervision."""
 
 from __future__ import annotations
 
 import argparse
+import copy
 import csv
 import math
 import sys
@@ -17,8 +18,10 @@ from torch.utils.data import DataLoader, WeightedRandomSampler
 
 from dataset import (
     LabeledDataset,
+    UnlabeledPairDataset,
     build_fg_balanced_weights,
     discover_samples,
+    discover_unlabeled_images,
     sample_has_foreground,
     split_train_val_by_video,
 )
@@ -49,6 +52,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--external-val-root", type=str, default=str(THIS_DIR / "data" / "labeled" / "val_external"))
     parser.add_argument("--use-external-val", action="store_true", default=False)
     parser.add_argument("--no-use-external-val", action="store_false", dest="use_external_val")
+    parser.add_argument("--unlabeled-root", type=str, default=str(REPO_ROOT / "data" / "images"))
     parser.add_argument("--output-dir", type=str, default=str(REPO_ROOT / "outputs" / "medsam2_stageA" / "task3_frozen"))
 
     parser.add_argument("--encoder-cfg", type=str, default=DEFAULT_ENCODER_CFG)
@@ -58,19 +62,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--encoder-train-mode", type=str, default="frozen", choices=["frozen", "neck", "full"])
     parser.add_argument("--freeze-encoder", action="store_true", default=True)
     parser.add_argument("--no-freeze-encoder", action="store_false", dest="freeze_encoder")
-    parser.add_argument("--no-semi", action="store_true", default=True, help="Accepted for Stage A command compatibility.")
+    parser.add_argument("--no-semi", action="store_true", default=False, help="Disable EMA teacher semi-supervised training.")
 
     parser.add_argument("--target-label", type=int, default=10)
     parser.add_argument("--image-size", type=int, nargs=2, default=[512, 512], help="H W")
 
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--unlabeled-batch-size", type=int, default=8)
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--val-video-count", type=int, default=2)
     parser.add_argument("--val-only-fg", action="store_true", default=True)
     parser.add_argument("--no-val-only-fg", action="store_false", dest="val_only_fg")
     parser.add_argument("--max-train-samples", type=int, default=0, help="Debug only; 0 means all")
     parser.add_argument("--max-val-samples", type=int, default=0, help="Debug only; 0 means all")
+    parser.add_argument("--max-unlabeled-samples", type=int, default=0, help="Debug only; 0 means all")
 
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--encoder-lr", type=float, default=1e-5)
@@ -95,6 +101,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--score-asd-weight", type=float, default=0.2)
     parser.add_argument("--score-hd-ref", type=float, default=20.0)
     parser.add_argument("--score-asd-ref", type=float, default=3.0)
+
+    parser.add_argument("--semi-warmup-epochs", type=int, default=6)
+    parser.add_argument("--unsup-weight", type=float, default=0.3)
+    parser.add_argument("--unsup-ramp-epochs", type=int, default=12)
+    parser.add_argument("--ema-decay", type=float, default=0.99)
+    parser.add_argument("--pseudo-pos-thr", type=float, default=0.60)
+    parser.add_argument("--pseudo-neg-thr", type=float, default=0.10)
+    parser.add_argument("--pseudo-min-area", type=float, default=100.0)
+    parser.add_argument("--pseudo-min-pos-ratio", type=float, default=0.0005)
+    parser.add_argument("--unsup-neg-weight", type=float, default=0.2)
 
     parser.add_argument(
         "--threshold-candidates",
@@ -164,6 +180,33 @@ def count_params(module: torch.nn.Module) -> tuple[int, int]:
     total = sum(p.numel() for p in module.parameters())
     trainable = sum(p.numel() for p in module.parameters() if p.requires_grad)
     return total, trainable
+
+
+def cycle_next(loader, iterator):
+    try:
+        batch = next(iterator)
+        return batch, iterator
+    except StopIteration:
+        iterator = iter(loader)
+        batch = next(iterator)
+        return batch, iterator
+
+
+def update_ema(teacher: torch.nn.Module, student: torch.nn.Module, decay: float) -> None:
+    with torch.no_grad():
+        for t_param, s_param in zip(teacher.parameters(), student.parameters()):
+            t_param.data.mul_(decay).add_(s_param.data, alpha=1.0 - decay)
+        for t_buf, s_buf in zip(teacher.buffers(), student.buffers()):
+            t_buf.copy_(s_buf)
+
+
+def compute_unsup_weight(epoch: int, semi_warmup_epochs: int, unsup_weight: float, ramp_epochs: int) -> float:
+    if epoch <= semi_warmup_epochs:
+        return 0.0
+    if ramp_epochs <= 0:
+        return float(unsup_weight)
+    ratio = min(1.0, float(epoch - semi_warmup_epochs) / float(ramp_epochs))
+    return float(unsup_weight) * ratio
 
 
 @torch.no_grad()
@@ -301,6 +344,7 @@ def save_checkpoint(
     path: Path,
     epoch: int,
     model: torch.nn.Module,
+    teacher: torch.nn.Module | None,
     optimizer: torch.optim.Optimizer,
     scheduler,
     args: argparse.Namespace,
@@ -313,6 +357,7 @@ def save_checkpoint(
             "model_type": "medsam2_encoder",
             "epoch": epoch,
             "model_state": model.state_dict(),
+            "teacher_state": teacher.state_dict() if teacher is not None else None,
             "optimizer_state": optimizer.state_dict(),
             "scheduler_state": scheduler.state_dict(),
             "args": vars(args),
@@ -344,6 +389,7 @@ def main() -> int:
 
     labeled_root = Path(args.labeled_root)
     external_val_root = Path(args.external_val_root)
+    unlabeled_root = Path(args.unlabeled_root)
     if not labeled_root.exists():
         raise FileNotFoundError(f"labeled_root not found: {labeled_root}")
 
@@ -391,6 +437,14 @@ def main() -> int:
             s for s in external_val_samples if sample_has_foreground(s, target_label=int(args.target_label))
         ]
     ext_fg_after = len(external_val_samples)
+
+    unlabeled_paths = []
+    if not bool(args.no_semi):
+        unlabeled_paths = discover_unlabeled_images(unlabeled_root)
+        if int(args.max_unlabeled_samples) > 0:
+            unlabeled_paths = unlabeled_paths[: int(args.max_unlabeled_samples)]
+        if not unlabeled_paths:
+            logger.warning("Semi-supervision requested but no unlabeled images found under %s; falling back to supervised.", unlabeled_root)
 
     train_ds = LabeledDataset(
         samples=train_samples,
@@ -465,9 +519,27 @@ def main() -> int:
             persistent_workers=int(args.num_workers) > 0,
         )
 
+    unl_loader = None
+    if unlabeled_paths:
+        unl_ds = UnlabeledPairDataset(
+            image_paths=unlabeled_paths,
+            image_size=image_size,
+            use_imagenet_norm=bool(args.use_imagenet_norm),
+            seed=int(args.seed),
+        )
+        unl_loader = DataLoader(
+            unl_ds,
+            batch_size=max(1, int(args.unlabeled_batch_size)),
+            shuffle=True,
+            num_workers=min(2, int(args.num_workers)),
+            pin_memory=True,
+            persistent_workers=int(args.num_workers) > 0,
+            drop_last=False,
+        )
+
     logger.info(
         "Data: labeled all=%d train=%d val_internal=%d (all=%d, fg_only=%s, kept=%d/%d) "
-        "external_val=%d (all=%d, kept=%d/%d) | train_videos=%s | val_videos=%s",
+        "external_val=%d (all=%d, kept=%d/%d) unlabeled=%d semi=%s | train_videos=%s | val_videos=%s",
         len(all_labeled),
         len(train_samples),
         len(val_samples),
@@ -479,6 +551,8 @@ def main() -> int:
         len(external_val_samples_all),
         ext_fg_after,
         ext_fg_before,
+        len(unlabeled_paths),
+        bool(unl_loader is not None),
         train_video_ids,
         val_video_ids,
     )
@@ -494,6 +568,13 @@ def main() -> int:
     total_params, trainable_params = count_params(model)
     logger.info("Model params: total=%d trainable=%d", total_params, trainable_params)
 
+    teacher = None
+    if unl_loader is not None:
+        teacher = copy.deepcopy(model).to(device)
+        teacher.eval()
+        for param in teacher.parameters():
+            param.requires_grad_(False)
+
     sup_loss_fn = get_loss_fn(
         loss_type=args.loss_type,
         dice_weight=float(args.dice_loss_weight),
@@ -505,6 +586,7 @@ def main() -> int:
     )
     if isinstance(sup_loss_fn, torch.nn.Module):
         sup_loss_fn = sup_loss_fn.to(device)
+    unsup_bce = torch.nn.BCEWithLogitsLoss(reduction="none")
 
     optimizer = build_optimizer(model, args)
     warmup_epochs = max(0, min(int(args.warmup_epochs), max(0, int(args.epochs) - 1)))
@@ -539,6 +621,7 @@ def main() -> int:
         {
             "labeled_root": str(labeled_root),
             "external_val_root": str(external_val_root),
+            "unlabeled_root": str(unlabeled_root),
             "val_only_fg": bool(args.val_only_fg),
             "all_labeled_samples": [s.image_path.as_posix() for s in all_labeled],
             "train_samples": [s.image_path.as_posix() for s in train_samples],
@@ -546,6 +629,7 @@ def main() -> int:
             "val_internal_samples": [s.image_path.as_posix() for s in val_samples],
             "external_val_all_samples": [s.image_path.as_posix() for s in external_val_samples_all],
             "external_val_samples": [s.image_path.as_posix() for s in external_val_samples],
+            "unlabeled_samples": [p.as_posix() for p in unlabeled_paths],
             "train_videos": train_video_ids,
             "val_videos": val_video_ids,
         },
@@ -559,7 +643,12 @@ def main() -> int:
             [
                 "epoch",
                 "train_loss",
+                "sup_loss",
+                "unsup_loss",
                 "train_dice",
+                "lambda_u",
+                "pseudo_pos_ratio",
+                "pseudo_conf_ratio",
                 "val_loss",
                 "val_dice",
                 "val_hd",
@@ -587,22 +676,84 @@ def main() -> int:
     for epoch in range(1, int(args.epochs) + 1):
         epoch_start = time.time()
         model.train()
+        if teacher is not None:
+            teacher.eval()
 
-        loss_sum = 0.0
+        lambda_u = compute_unsup_weight(
+            epoch=epoch,
+            semi_warmup_epochs=int(args.semi_warmup_epochs),
+            unsup_weight=float(args.unsup_weight),
+            ramp_epochs=int(args.unsup_ramp_epochs),
+        )
+
+        sup_loss_sum = 0.0
+        unsup_loss_sum = 0.0
+        total_loss_sum = 0.0
         train_dice_sum = 0.0
+        pseudo_pos_ratio_sum = 0.0
+        pseudo_conf_ratio_sum = 0.0
         steps = 0
 
-        for step, batch in enumerate(train_loader, start=1):
+        train_iter = iter(train_loader)
+        unl_iter = iter(unl_loader) if unl_loader is not None else None
+        num_steps = len(train_loader)
+
+        for step in range(1, num_steps + 1):
+            batch, train_iter = cycle_next(train_loader, train_iter)
             images = batch["image"].to(device, non_blocking=True)
             labels = batch["label"].to(device, non_blocking=True)
 
             optimizer.zero_grad(set_to_none=True)
             with torch.amp.autocast(device_type=device.type, enabled=use_amp):
                 logits = model(images)
-                loss = sup_loss_fn(logits, labels)
+                sup_loss = sup_loss_fn(logits, labels)
 
             with torch.no_grad():
                 batch_train_dice = dice_from_logits(logits, labels, ignore_empty_gt=True)
+
+            unsup_loss = torch.tensor(0.0, dtype=torch.float32, device=device)
+            pseudo_pos_ratio = 0.0
+            pseudo_conf_ratio = 0.0
+
+            if lambda_u > 0.0 and teacher is not None and unl_loader is not None and unl_iter is not None:
+                unl_batch, unl_iter = cycle_next(unl_loader, unl_iter)
+                weak = unl_batch["weak"].to(device, non_blocking=True)
+                strong = unl_batch["strong"].to(device, non_blocking=True)
+
+                with torch.no_grad():
+                    t_probs = predict_probs(teacher, weak, use_amp=use_amp, use_tta=False)
+
+                pseudo = (t_probs >= float(args.pseudo_pos_thr)).float()
+                conf_mask = ((t_probs >= float(args.pseudo_pos_thr)) | (t_probs <= float(args.pseudo_neg_thr))).float()
+                pseudo_pos_ratio = float(pseudo.mean().item())
+
+                if float(args.pseudo_min_area) > 0:
+                    area = pseudo.flatten(1).sum(dim=1)
+                    small = area < float(args.pseudo_min_area)
+                    if small.any():
+                        pseudo[small] = 0.0
+                        conf_mask[small] = (t_probs[small] <= float(args.pseudo_neg_thr)).float()
+                    pseudo_pos_ratio = float(pseudo.mean().item())
+
+                if pseudo_pos_ratio < float(args.pseudo_min_pos_ratio):
+                    conf_mask.zero_()
+
+                with torch.amp.autocast(device_type=device.type, enabled=use_amp):
+                    logits_u = model(strong)
+                    loss_map = unsup_bce(logits_u, pseudo)
+                    pixel_weight = torch.where(
+                        pseudo > 0.5,
+                        torch.ones_like(pseudo),
+                        torch.full_like(pseudo, float(args.unsup_neg_weight)),
+                    )
+                    weighted_conf = conf_mask * pixel_weight
+                    valid_pixels = weighted_conf.sum()
+                    if float(valid_pixels.item()) > 0.0:
+                        unsup_loss = (loss_map * weighted_conf).sum() / valid_pixels
+
+                pseudo_conf_ratio = float(conf_mask.mean().item())
+
+            loss = sup_loss + float(lambda_u) * unsup_loss
 
             if scaler is not None:
                 scaler.scale(loss).backward()
@@ -617,18 +768,30 @@ def main() -> int:
                     torch.nn.utils.clip_grad_norm_(model.parameters(), float(args.grad_clip_norm))
                 optimizer.step()
 
-            loss_sum += float(loss.item())
+            if teacher is not None:
+                update_ema(teacher, model, decay=float(args.ema_decay))
+
+            sup_loss_sum += float(sup_loss.item())
+            unsup_loss_sum += float(unsup_loss.item())
+            total_loss_sum += float(loss.item())
             train_dice_sum += float(batch_train_dice)
+            pseudo_pos_ratio_sum += pseudo_pos_ratio
+            pseudo_conf_ratio_sum += pseudo_conf_ratio
             steps += 1
 
-            if int(args.print_freq) > 0 and (step % int(args.print_freq) == 0 or step == len(train_loader)):
+            if int(args.print_freq) > 0 and (step % int(args.print_freq) == 0 or step == num_steps):
                 logger.info(
-                    "Epoch %d Step %d/%d | loss=%.4f dice=%.4f",
+                    "Epoch %d Step %d/%d | lambda_u=%.3f | sup=%.4f unsup=%.4f total=%.4f dice=%.4f | pseudo_pos=%.4f conf=%.4f",
                     epoch,
                     step,
-                    len(train_loader),
-                    loss_sum / max(1, steps),
+                    num_steps,
+                    lambda_u,
+                    sup_loss_sum / max(1, steps),
+                    unsup_loss_sum / max(1, steps),
+                    total_loss_sum / max(1, steps),
                     train_dice_sum / max(1, steps),
+                    pseudo_pos_ratio_sum / max(1, steps),
+                    pseudo_conf_ratio_sum / max(1, steps),
                 )
 
         val_metrics = evaluate(
@@ -683,6 +846,7 @@ def main() -> int:
                 ckpt_dir / "best.pt",
                 epoch,
                 model,
+                teacher,
                 optimizer,
                 scheduler,
                 args,
@@ -697,6 +861,7 @@ def main() -> int:
             ckpt_dir / "last.pt",
             epoch,
             model,
+            teacher,
             optimizer,
             scheduler,
             args,
@@ -710,6 +875,7 @@ def main() -> int:
                 ckpt_dir / f"epoch_{epoch:03d}.pt",
                 epoch,
                 model,
+                teacher,
                 optimizer,
                 scheduler,
                 args,
@@ -723,8 +889,13 @@ def main() -> int:
             w.writerow(
                 [
                     epoch,
-                    f"{loss_sum / max(1, steps):.6f}",
+                    f"{total_loss_sum / max(1, steps):.6f}",
+                    f"{sup_loss_sum / max(1, steps):.6f}",
+                    f"{unsup_loss_sum / max(1, steps):.6f}",
                     f"{train_dice_sum / max(1, steps):.6f}",
+                    f"{lambda_u:.6f}",
+                    f"{pseudo_pos_ratio_sum / max(1, steps):.6f}",
+                    f"{pseudo_conf_ratio_sum / max(1, steps):.6f}",
                     f"{val_metrics['val_loss']:.6f}",
                     f"{val_metrics['val_dice']:.6f}",
                     f"{val_metrics['val_hd']:.6f}",
@@ -741,12 +912,15 @@ def main() -> int:
             )
 
         logger.info(
-            "Epoch %d/%d | train_loss=%.4f train_dice=%.4f | val_loss=%.4f val_dice=%.4f "
+            "Epoch %d/%d | lambda_u=%.3f | train(sup/unsup/total)=%.4f/%.4f/%.4f train_dice=%.4f | val_loss=%.4f val_dice=%.4f "
             "val_hd=%s val_asd=%s thr=%.2f pred_pos=%.4f gt_pos=%.4f dist_n=%d | "
-            "score=%.4f best=%.4f(epoch=%d) | ext_dice=%s | lr=%.6g | %.1fs",
+            "score=%.4f best=%.4f(epoch=%d) | pseudo_pos=%.4f conf=%.4f | ext_dice=%s | lr=%.6g | %.1fs",
             epoch,
             int(args.epochs),
-            loss_sum / max(1, steps),
+            lambda_u,
+            sup_loss_sum / max(1, steps),
+            unsup_loss_sum / max(1, steps),
+            total_loss_sum / max(1, steps),
             train_dice_sum / max(1, steps),
             val_metrics["val_loss"],
             val_metrics["val_dice"],
@@ -759,6 +933,8 @@ def main() -> int:
             score,
             best_score,
             best_epoch,
+            pseudo_pos_ratio_sum / max(1, steps),
+            pseudo_conf_ratio_sum / max(1, steps),
             "nan" if math.isnan(ext_val_dice) else f"{ext_val_dice:.4f}",
             lr_now,
             epoch_sec,
@@ -789,6 +965,17 @@ def main() -> int:
             "external_val_samples": len(external_val_samples),
             "external_val_fg_kept": ext_fg_after,
             "external_val_fg_before": ext_fg_before,
+            "unlabeled_samples": len(unlabeled_paths),
+            "semi_enabled": bool(teacher is not None),
+            "semi_warmup_epochs": int(args.semi_warmup_epochs),
+            "unsup_weight": float(args.unsup_weight),
+            "unsup_ramp_epochs": int(args.unsup_ramp_epochs),
+            "ema_decay": float(args.ema_decay),
+            "pseudo_pos_thr": float(args.pseudo_pos_thr),
+            "pseudo_neg_thr": float(args.pseudo_neg_thr),
+            "pseudo_min_area": float(args.pseudo_min_area),
+            "pseudo_min_pos_ratio": float(args.pseudo_min_pos_ratio),
+            "unsup_neg_weight": float(args.unsup_neg_weight),
             "train_videos": train_video_ids,
             "val_videos": val_video_ids,
             "model_type": "medsam2_encoder",

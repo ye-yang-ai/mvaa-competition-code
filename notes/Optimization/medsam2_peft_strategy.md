@@ -436,6 +436,12 @@ Task3 Stage A 的详细实现计划记录在：
 notes/Optimization/opt_log/task3_medsam2_stageA_implementation.md
 ```
 
+Task3 Stage C semi-supervised 训练实现和实验记录在：
+
+```text
+notes/Optimization/opt_log/task3_medsam2_stageC_semi.md
+```
+
 第一版实现边界：
 
 ```text
@@ -456,3 +462,21 @@ notes/Optimization/opt_log/task3_medsam2_stageA_implementation.md
 先证明 encoder 特征有效，再考虑 neck fine-tune / adapter / LoRA。
 Task1/Task2 后续走 2.5D，不直接把 3D volume 输入 MedSAM2 encoder。
 ```
+
+Stage C 已实现 MedSAM2 EMA teacher 半监督训练，但 hard pseudo-label BCE 的第一版不理想：
+
+```text
+v1 best 仍在 supervised warmup epoch 6: Dice 0.6661 | HD 98.83  | ASD 16.97
+v1b best 仍在 supervised warmup epoch 6: Dice 0.6658 | HD 101.78 | ASD 17.13
+```
+
+主要失败模式：
+
+```text
+teacher pseudo positive area only about 0.03-0.04
+validation GT area about 0.1136
+unsupervised BCE is dominated by confident background pixels
+student prediction area becomes too small after semi starts
+```
+
+下一步如果继续 Stage C，应改为 positive-only pseudo supervision 或 soft consistency，而不是继续只调 unsup_weight。
