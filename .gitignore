@@ -11,6 +11,8 @@ env/
 
 # Training / inference outputs
 data/
+checkpoints/
+external/MedSAM2/
 outputs/
 runs/
 **/runs/
