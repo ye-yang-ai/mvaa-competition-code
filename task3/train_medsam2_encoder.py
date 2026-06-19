@@ -111,6 +111,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pseudo-min-area", type=float, default=100.0)
     parser.add_argument("--pseudo-min-pos-ratio", type=float, default=0.0005)
     parser.add_argument("--unsup-neg-weight", type=float, default=0.2)
+    parser.add_argument("--unsup-mode", type=str, default="hard_bce", choices=["hard_bce", "positive_only"])
+    parser.add_argument("--pseudo-area-ratio-min", type=float, default=0.0)
+    parser.add_argument("--pseudo-area-ratio-max", type=float, default=1.0)
 
     parser.add_argument(
         "--threshold-candidates",
@@ -724,7 +727,10 @@ def main() -> int:
                     t_probs = predict_probs(teacher, weak, use_amp=use_amp, use_tta=False)
 
                 pseudo = (t_probs >= float(args.pseudo_pos_thr)).float()
-                conf_mask = ((t_probs >= float(args.pseudo_pos_thr)) | (t_probs <= float(args.pseudo_neg_thr))).float()
+                if str(args.unsup_mode) == "positive_only":
+                    conf_mask = pseudo.clone()
+                else:
+                    conf_mask = ((t_probs >= float(args.pseudo_pos_thr)) | (t_probs <= float(args.pseudo_neg_thr))).float()
                 pseudo_pos_ratio = float(pseudo.mean().item())
 
                 if float(args.pseudo_min_area) > 0:
@@ -732,7 +738,19 @@ def main() -> int:
                     small = area < float(args.pseudo_min_area)
                     if small.any():
                         pseudo[small] = 0.0
-                        conf_mask[small] = (t_probs[small] <= float(args.pseudo_neg_thr)).float()
+                        if str(args.unsup_mode) == "positive_only":
+                            conf_mask[small] = 0.0
+                        else:
+                            conf_mask[small] = (t_probs[small] <= float(args.pseudo_neg_thr)).float()
+                    pseudo_pos_ratio = float(pseudo.mean().item())
+
+                area_ratio = pseudo.flatten(1).mean(dim=1)
+                keep = (area_ratio >= float(args.pseudo_area_ratio_min)) & (
+                    area_ratio <= float(args.pseudo_area_ratio_max)
+                )
+                if not bool(keep.all()):
+                    pseudo[~keep] = 0.0
+                    conf_mask[~keep] = 0.0
                     pseudo_pos_ratio = float(pseudo.mean().item())
 
                 if pseudo_pos_ratio < float(args.pseudo_min_pos_ratio):
@@ -741,11 +759,14 @@ def main() -> int:
                 with torch.amp.autocast(device_type=device.type, enabled=use_amp):
                     logits_u = model(strong)
                     loss_map = unsup_bce(logits_u, pseudo)
-                    pixel_weight = torch.where(
-                        pseudo > 0.5,
-                        torch.ones_like(pseudo),
-                        torch.full_like(pseudo, float(args.unsup_neg_weight)),
-                    )
+                    if str(args.unsup_mode) == "positive_only":
+                        pixel_weight = torch.ones_like(pseudo)
+                    else:
+                        pixel_weight = torch.where(
+                            pseudo > 0.5,
+                            torch.ones_like(pseudo),
+                            torch.full_like(pseudo, float(args.unsup_neg_weight)),
+                        )
                     weighted_conf = conf_mask * pixel_weight
                     valid_pixels = weighted_conf.sum()
                     if float(valid_pixels.item()) > 0.0:
@@ -976,6 +997,9 @@ def main() -> int:
             "pseudo_min_area": float(args.pseudo_min_area),
             "pseudo_min_pos_ratio": float(args.pseudo_min_pos_ratio),
             "unsup_neg_weight": float(args.unsup_neg_weight),
+            "unsup_mode": str(args.unsup_mode),
+            "pseudo_area_ratio_min": float(args.pseudo_area_ratio_min),
+            "pseudo_area_ratio_max": float(args.pseudo_area_ratio_max),
             "train_videos": train_video_ids,
             "val_videos": val_video_ids,
             "model_type": "medsam2_encoder",

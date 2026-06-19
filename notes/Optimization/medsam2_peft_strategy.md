@@ -479,4 +479,25 @@ unsupervised BCE is dominated by confident background pixels
 student prediction area becomes too small after semi starts
 ```
 
-下一步如果继续 Stage C，应改为 positive-only pseudo supervision 或 soft consistency，而不是继续只调 unsup_weight。
+Stage C v2 已验证 positive-only pseudo supervision 是更好的方向：
+
+```text
+best epoch 59
+Dice 0.6911 | HD 109.54 | ASD 16.38 | threshold 0.65
+```
+
+Stage C v2 后处理评估：
+
+```text
+thr=0.70 | min_area=400 | keep_components=2 | close_iters=0 | fill_holes=False
+Dice 0.6887 | HD 83.65 | ASD 16.36
+```
+
+结论：
+
+```text
+positive-only semi-supervision 明显优于 hard pseudo-label BCE。
+当前 MedSAM2 路线的 Dice 仍低于网站最佳 Task3 DSC 0.76175。
+HD 可以通过后处理降到网站目标 91.85 以下。
+下一步应把后处理参数加入 MedSAM2 prediction script，并生成一次网站提交验证泛化。
+```

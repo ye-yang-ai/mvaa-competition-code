@@ -247,3 +247,86 @@ warmup from epoch 8
 skip pseudo masks with area ratio < 0.02
 skip pseudo masks with area ratio > 0.25
 ```
+
+## Stage C v2
+
+Implemented:
+
+```text
+--unsup-mode positive_only
+--pseudo-area-ratio-min
+--pseudo-area-ratio-max
+```
+
+In `positive_only` mode:
+
+```text
+teacher probability >= pseudo_pos_thr -> positive pseudo pixels
+only positive pseudo pixels contribute to unsupervised BCE
+teacher negative pixels are ignored
+samples outside the area-ratio gate are skipped
+```
+
+Command:
+
+```text
+CUDA_VISIBLE_DEVICES=2 python task3/train_medsam2_encoder.py \
+  --labeled-root data/t3_vid/train \
+  --unlabeled-root data/images \
+  --output-dir outputs/medsam2_stageC/task3_frozen_v1_semi_v2_posonly \
+  --epochs 80 \
+  --batch-size 8 \
+  --unlabeled-batch-size 8 \
+  --image-size 512 512 \
+  --decoder-version v1 \
+  --encoder-train-mode frozen \
+  --lr 1e-3 \
+  --semi-warmup-epochs 8 \
+  --unsup-weight 0.1 \
+  --unsup-ramp-epochs 20 \
+  --ema-decay 0.99 \
+  --unsup-mode positive_only \
+  --pseudo-pos-thr 0.60 \
+  --pseudo-min-area 100 \
+  --pseudo-min-pos-ratio 0.0005 \
+  --pseudo-area-ratio-min 0.02 \
+  --pseudo-area-ratio-max 0.25
+```
+
+Result:
+
+```text
+best epoch: 59
+Dice: 0.6911
+HD: 109.54
+ASD: 16.38
+threshold: 0.65
+```
+
+Observations:
+
+```text
+positive-only is better than hard pseudo-label BCE
+semi-supervised training now improves beyond supervised warmup
+pseudo_pos_ratio gradually rises from about 0.03-0.04 to about 0.10
+late epochs start to overpredict area, so epoch 59 is better than final epoch
+```
+
+Postprocess evaluation on best checkpoint:
+
+```text
+Raw best no-TTA:
+thr=0.75 | Dice 0.6798 | HD 133.56 | ASD 18.78
+
+Post best no-TTA:
+thr=0.70 | min_area=400 | keep_components=2 | close_iters=0 | fill_holes=False
+Dice 0.6887 | HD 83.65 | ASD 16.36
+```
+
+Interpretation:
+
+```text
+Stage C v2 is the best MedSAM2 Task3 run so far by Dice.
+Postprocessing can bring HD below the website Task3 target, but Dice is still below the website best 0.76175.
+The next practical step is to add the postprocess options to the MedSAM2 prediction script and generate a website submission.
+```
