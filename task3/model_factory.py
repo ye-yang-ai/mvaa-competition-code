@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -14,6 +16,37 @@ except Exception as e:  # pragma: no cover
     _SMP_IMPORT_ERROR = e
 else:
     _SMP_IMPORT_ERROR = None
+
+THIS_DIR = Path(__file__).resolve().parent
+REPO_ROOT = THIS_DIR.parent
+LOCAL_SMP_WEIGHTS = {
+    "efficientnet-b4": REPO_ROOT / "checkpoints" / "pretrained" / "smp" / "efficientnet-b4-imagenet" / "model.safetensors",
+    "efficientnet-b3": REPO_ROOT / "checkpoints" / "pretrained" / "smp" / "efficientnet-b3-imagenet" / "model.safetensors",
+    "resnet34": REPO_ROOT / "checkpoints" / "pretrained" / "smp" / "resnet34-imagenet" / "model.safetensors",
+}
+
+
+def _get_local_smp_weight_path(encoder_name: str, encoder_weights: str | None) -> Path | None:
+    if encoder_weights is None:
+        return None
+    if str(encoder_weights).lower() != "imagenet":
+        return None
+    return LOCAL_SMP_WEIGHTS.get(str(encoder_name).lower())
+
+
+def _load_local_encoder_weights(model: nn.Module, weights_path: Path) -> None:
+    try:
+        from safetensors.torch import load_file
+    except Exception as exc:  # pragma: no cover
+        raise ImportError("safetensors is required to load local SMP encoder weights.") from exc
+
+    if not weights_path.exists():
+        raise FileNotFoundError(f"Local encoder weight file not found: {weights_path}")
+    if not hasattr(model, "encoder"):
+        raise AttributeError("SMP model does not expose an encoder module.")
+
+    state_dict = load_file(str(weights_path), device="cpu")
+    model.encoder.load_state_dict(state_dict, strict=False)
 
 
 def get_model(
@@ -30,35 +63,44 @@ def get_model(
         )
 
     arch = arch.lower()
+    local_weight_path = _get_local_smp_weight_path(encoder_name, encoder_weights)
+    smp_encoder_weights = None if local_weight_path is not None else encoder_weights
+
     if arch == "unet":
-        return smp.Unet(
+        model = smp.Unet(
             encoder_name=encoder_name,
-            encoder_weights=encoder_weights,
+            encoder_weights=smp_encoder_weights,
             in_channels=in_channels,
             classes=classes,
         )
-    if arch == "unetplusplus":
-        return smp.UnetPlusPlus(
+    elif arch == "unetplusplus":
+        model = smp.UnetPlusPlus(
             encoder_name=encoder_name,
-            encoder_weights=encoder_weights,
+            encoder_weights=smp_encoder_weights,
             in_channels=in_channels,
             classes=classes,
         )
-    if arch == "fpn":
-        return smp.FPN(
+    elif arch == "fpn":
+        model = smp.FPN(
             encoder_name=encoder_name,
-            encoder_weights=encoder_weights,
+            encoder_weights=smp_encoder_weights,
             in_channels=in_channels,
             classes=classes,
         )
-    if arch == "deeplabv3plus":
-        return smp.DeepLabV3Plus(
+    elif arch == "deeplabv3plus":
+        model = smp.DeepLabV3Plus(
             encoder_name=encoder_name,
-            encoder_weights=encoder_weights,
+            encoder_weights=smp_encoder_weights,
             in_channels=in_channels,
             classes=classes,
         )
-    raise ValueError(f"Unsupported architecture: {arch}")
+    else:
+        raise ValueError(f"Unsupported architecture: {arch}")
+
+    if local_weight_path is not None:
+        _load_local_encoder_weights(model, local_weight_path)
+
+    return model
 
 
 class DiceBCELoss(nn.Module):
