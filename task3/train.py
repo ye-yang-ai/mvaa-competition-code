@@ -36,18 +36,17 @@ from utils import (
 )
 
 THIS_DIR = Path(__file__).resolve().parent
-REPO_ROOT = THIS_DIR.parent.parent
-TASK3_ROOT = REPO_ROOT / "task3"
+REPO_ROOT = THIS_DIR.parent
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Task3 baseline semi-supervised training")
 
-    parser.add_argument("--labeled-root", type=str, default=str(REPO_ROOT / "data" / "t3_vid" / "train"))
+    parser.add_argument("--labeled-root", type=str, default=str(REPO_ROOT / "data" / "reference_data" / "t3_vid" / "train"))
     parser.add_argument("--external-val-root", type=str, default=str(THIS_DIR / "data" / "labeled" / "val_external"))
     parser.add_argument("--use-external-val", action="store_true", default=False)
     parser.add_argument("--no-use-external-val", action="store_false", dest="use_external_val")
-    parser.add_argument("--unlabeled-root", type=str, default=str(TASK3_ROOT / "未标记素材-图片" / "images"))
+    parser.add_argument("--unlabeled-root", type=str, default=str(REPO_ROOT / "data" / "images"))
     parser.add_argument("--output-dir", type=str, default=str(THIS_DIR / "runs" / "semi_baseline_default"))
 
     parser.add_argument("--arch", type=str, default="unetplusplus", choices=["unet", "unetplusplus", "fpn", "deeplabv3plus"])

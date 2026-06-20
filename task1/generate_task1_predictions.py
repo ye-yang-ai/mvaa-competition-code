@@ -30,11 +30,11 @@ except ModuleNotFoundError as exc:  # pragma: no cover
     raise SystemExit("Missing dependency nibabel. Install via: pip install nibabel") from exc
 
 THIS_DIR = Path(__file__).resolve().parent
-REPO_ROOT = THIS_DIR.parent.parent
+REPO_ROOT = THIS_DIR.parent
 
 # ===== Config (edit here) =====
 CKPT_PATH = THIS_DIR / "runs" / "semi_supervised" / "checkpoints" / "best_model.pt"
-DATA_DIR = REPO_ROOT / "data" / "t1_ct" / "val" / "images"
+DATA_DIR = REPO_ROOT / "data" / "reference_data" / "t1_ct" / "val" / "images"
 SUBMISSION_TASK_DIR = THIS_DIR.parent / "submission" / "t1_ct"
 PRED_DIR = SUBMISSION_TASK_DIR
 OUTPUT_JSON = SUBMISSION_TASK_DIR / "task1_predictions.json"

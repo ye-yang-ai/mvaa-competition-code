@@ -14,14 +14,14 @@ import torch.nn.functional as F
 from PIL import Image
 
 THIS_DIR = Path(__file__).resolve().parent
-REPO_ROOT = THIS_DIR.parent.parent
+REPO_ROOT = THIS_DIR.parent
 
 from dataset import IMAGENET_MEAN, IMAGENET_STD  # noqa: E402
 from model_factory import get_model  # noqa: E402
 
 # ===== Config (edit here) =====
 CKPT_PATH = THIS_DIR / "runs" / "semi_baseline_default" / "checkpoints" / "best.pt"
-DATA_DIR = REPO_ROOT / "data" / "t3_vid" / "val" / "images"
+DATA_DIR = REPO_ROOT / "data" / "reference_data" / "t3_vid" / "val" / "images"
 SUBMISSION_TASK_DIR = THIS_DIR.parent / "submission" / "t3_vid"
 PRED_DIR = SUBMISSION_TASK_DIR
 OUTPUT_JSON = SUBMISSION_TASK_DIR / "task3_predictions.json"
