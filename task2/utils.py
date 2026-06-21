@@ -107,4 +107,16 @@ def update_metric_refs(refs: MetricRefs, hd: float, asd: float, momentum: float 
 
 
 def get_device() -> torch.device:
+    requested = os.environ.get("MVAA_DEVICE", "").strip()
+    if requested:
+        device = torch.device(requested)
+        if device.type == "cuda":
+            if not torch.cuda.is_available():
+                raise RuntimeError(f"MVAA_DEVICE={requested} was requested, but CUDA is not available.")
+            index = 0 if device.index is None else int(device.index)
+            if index >= torch.cuda.device_count():
+                raise RuntimeError(
+                    f"MVAA_DEVICE={requested} is out of range; visible CUDA device count is {torch.cuda.device_count()}."
+                )
+        return device
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")

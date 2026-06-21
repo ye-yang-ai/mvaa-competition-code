@@ -23,6 +23,7 @@ from monai.transforms import (
 )
 
 from model_factory import get_model
+from utils import get_device
 
 try:
     import nibabel as nib
@@ -162,7 +163,7 @@ def main() -> int:
     files = discover_images(data_dir)
     loader = build_loader(files, enable_spacing_resample, target_spacing, args.num_workers)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = get_device()
     model = get_model(
         name=model_name,
         model_size=model_size,
