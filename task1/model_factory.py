@@ -7,7 +7,7 @@ from typing import Sequence
 
 import torch
 from monai.losses import DiceCELoss
-from monai.networks.nets import UNet
+from monai.networks.nets import SegResNet, UNet
 
 
 def get_model(
@@ -47,6 +47,35 @@ def get_model(
             act="PRELU",
             norm="INSTANCE",
             dropout=0.0,
+        )
+
+    if name in {"segresnet", "segresnet3d"}:
+        if model_size == "small":
+            init_filters = 16
+            blocks_down = (1, 2, 2, 4)
+            blocks_up = (1, 1, 1)
+        elif model_size == "base":
+            init_filters = 24
+            blocks_down = (1, 2, 2, 4)
+            blocks_up = (1, 1, 1)
+        elif model_size == "large":
+            init_filters = 32
+            blocks_down = (1, 2, 2, 4)
+            blocks_up = (1, 1, 1)
+        else:
+            raise ValueError(f"Unsupported model_size: {model_size}")
+
+        return SegResNet(
+            spatial_dims=3,
+            in_channels=in_channels,
+            out_channels=out_channels,
+            init_filters=init_filters,
+            blocks_down=blocks_down,
+            blocks_up=blocks_up,
+            dropout_prob=0.0,
+            norm=("GROUP", {"num_groups": 8}),
+            act=("RELU", {"inplace": True}),
+            upsample_mode="nontrainable",
         )
 
     raise ValueError(f"Unsupported model name: {name}")
