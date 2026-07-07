@@ -1,4 +1,4 @@
-# MVAA 2026 Submission Scores v1-v12
+# MVAA 2026 Submission Scores v1-v14
 
 本文档记录已知线上评测结果。v1-v3 如果没有明确保存到对话中的完整结果，暂不补猜；从有明确结果的版本开始记录。
 
@@ -16,6 +16,7 @@
 | v10 | best_task_configs 单模型提交：Task1 SegResNet bestcfg + Task2 large ROI160 bestcfg + Task3 Unet++ ResNet34 bestcfg | 三个 task 均刷新当前线上最佳 |
 | v11 | v10 + Task3 保守二值后处理 `min_area=400, keep_top=2, close_iters=1` | Task3 HD 小幅优于 v10，但 DSC/ASD 下降 |
 | v12 | v10 Task1/Task2 + Task3 ResNet34/EfficientNet-B4 概率 ensemble `0.5/0.5, threshold=0.15` | Task3 DSC 当前最高，但 HD 明显变差 |
+| v14 | v10 Task1/Task3 + Task2 v13 batch size 1 ROI192 权重 + Task2 后处理 | Task2 明确刷新线上最佳；当前推荐主提交 |
 
 ## 总表
 
@@ -53,6 +54,9 @@
 | v12 | task1_ct | 0.810562 | 6.902283 | 0.396594 | 与 v10 相同 |
 | v12 | task2_tee | 0.805315 | 16.629738 | 0.926641 | 与 v10 相同 |
 | v12 | task3_vid | 0.790226 | 138.577390 | 16.059344 | Task3 概率 ensemble；DSC 当前最高，但 HD 变差 |
+| v14 | task1_ct | 0.810562 | 6.902283 | 0.396594 | 与 v10 相同，num_cases 30，missing_cases 0 |
+| v14 | task2_tee | 0.814276 | 10.904111 | 0.692376 | v13 batch size 1 ROI192 checkpoint + 后处理，当前线上最佳 Task2，num_cases 20，missing_cases 0 |
+| v14 | task3_vid | 0.768802 | 104.463167 | 15.432556 | 与 v10 相同，num_cases 48，missing_cases 0 |
 
 ## Task2 对比
 
@@ -65,6 +69,7 @@
 | v8 | UNet 0.4 + SegResNet base 0.6 | 0.764245 | 23.753866 | 1.618962 | 用户报告与 v7 完全一致，需谨慎解释 |
 | v9 | UNet 0.5 + base 0.25 + large 0.25 | 0.771490 | 21.974976 | 1.429489 | 曾为线上最佳，large 分支带来小幅稳定收益 |
 | v10 | large ROI160 bestcfg 单模型 | 0.805315 | 16.629738 | 0.926641 | 明显刷新 Task2，说明该单模型泛化强于 v9 ensemble |
+| v14 | v13 large ROI192 batch size 1 + 后处理 | 0.814276 | 10.904111 | 0.692376 | 明确刷新线上 Task2；相对 v10 三项指标全部改善 |
 
 ## Task3 对比
 
@@ -77,13 +82,21 @@
 
 ## 当前结论
 
-当前已验证最均衡提交仍是 **v10**：
+当前已验证最强主提交更新为 **v14**：
 
 ```text
-task1_ct: DSC 0.810562, HD 6.902283, ASD 0.396594
-task2_tee: DSC 0.805315, HD 16.629738, ASD 0.926641
-task3_vid: DSC 0.768802, HD 104.463167, ASD 15.432556
+task1_ct: DSC 0.8105616221627818, HD 6.902283124940843, ASD 0.3965936972734582
+task2_tee: DSC 0.8142756501175983, HD 10.904111011547963, ASD 0.6923764603409446
+task3_vid: DSC 0.7688017739874856, HD 104.46316699246366, ASD 15.432556307858986
 ```
+
+v14 相比 v10 只改变 Task2，Task1/Task3 结果保持一致；Task2 的 DSC、HD、ASD 三项全部改善。
+
+| Task2 Metric | v10 | v14 | Delta |
+|---|---:|---:|---:|
+| DSC | 0.805315 | 0.814276 | +0.008961 |
+| HD | 16.629738 | 10.904111 | -5.725627 |
+| ASD | 0.926641 | 0.692376 | -0.234265 |
 
 v11 / v12 主要只改变 Task3：
 
@@ -111,9 +124,38 @@ v10 相比 v9 的改善：
 
 判断：v10 是一次明确的大幅提升，不是随机小波动。三个 task 的 DSC 都升高，同时 HD/ASD 都下降，说明体素重叠和边界质量一起改善。Task2 提升最稳定，Task3 的距离指标改善最大。
 
+## v14 提交记录
+
+- 提交目录：`outputs/submissions/submit_v14_task2_v13_post/submission`
+- 提交压缩包：`outputs/submissions/submit_v14_task2_v13_post/submission.zip`
+- 记录文件：`outputs/submissions/submit_v14_task2_v13_post/checkpoint_record.md`
+- 生成时间：2026-07-07
+- 文件检查：submission 目录共 `101` 个文件；zip 根目录为 `t1_ct/`、`t2_tee/`、`t3_vid/`
+- 线上状态：已测评通过，三个 task 均 `ok`，missing_cases 均为 `0`
+
+组成：
+
+| Task | 来源 | 说明 |
+|---|---|---|
+| task1_ct | v10 | 直接复制 `submit_v10_bestcfg_raw/submission/t1_ct` |
+| task2_tee | v13 + post | 使用 `outputs/exp/task2_unet_large_e200_b1_roi192x192x160_c2_lr2e4_score525_v13/checkpoints/best_model.pt` 重新生成 |
+| task3_vid | v10 | 直接复制 `submit_v10_bestcfg_raw/submission/t3_vid` |
+
+Task2 v14 后处理参数：
+
+| 参数 | 值 |
+|---|---|
+| `postprocess` | enabled |
+| `post_min_size` | 100 |
+| `post_keep_components` | 1 |
+| `post_fill_holes` | true |
+| `post_close_iters` | 0 |
+
+v14 当前状态：已完成线上测评，当前推荐主提交。Task2 线上结果为 DSC `0.8142756501175983`，HD `10.904111011547963`，ASD `0.6923764603409446`。
+
 后续优先级：
 
-1. 保留 v10 作为当前主力提交和新基线。
+1. 保留 v14 作为当前主力提交和新基线。
 2. 第一优先级优化 Task3：v10 虽然大幅改善 HD/ASD，但 Task3 的 HD 仍有 104.46，说明仍存在少量远端误检/漏检帧；优先做阈值、连通域、小区域过滤、时序一致性后处理。
 3. 第二优先级优化 Task2：v10 单模型已经强于 v9 ensemble，下一步不要直接沿用 v9 权重；应以 v10 large ROI160 为主模型，尝试加入 v9 中互补模型的小权重 ensemble，例如 v10:old_UNet:old_base = 0.7:0.15:0.15 或 0.8:0.1:0.1。
 4. 第三优先级优化 Task1：Task1 已经较稳，继续尝试阈值/后处理和少量 seed ensemble，目标是把 HD/ASD 再压低，而不是大改模型。

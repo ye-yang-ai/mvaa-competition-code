@@ -2,7 +2,7 @@
 
 更新时间：2026-07-07
 
-本文件汇总当前已记录的线上最优/最稳结果。整体主提交建议使用 `v10`，因为三个 task 在该版本同时刷新，并且没有后续版本能在所有核心指标上整体超过它。
+本文件汇总当前已记录的线上最优/最稳结果。整体主提交建议更新为 `v14`，因为它在保持 Task1/Task3 与 v10 一致的同时，明确刷新了 Task2 的 DSC、HD 和 ASD。
 
 ## 总览
 
@@ -11,7 +11,7 @@
 | Task | 推荐版本 | 配置摘要 | DSC | HD | ASD | 判断 |
 |---|---|---|---:|---:|---:|---|
 | task1_ct | v10 | SegResNet base bestcfg | 0.810562 | 6.902283 | 0.396594 | 当前线上最佳 Task1 |
-| task2_tee | v10 | 3D UNet large, ROI 160 bestcfg | 0.805315 | 16.629738 | 0.926641 | 当前线上最佳 Task2；本地 v13 候选更强 |
+| task2_tee | v14 | 3D UNet large, ROI 192 v13 + 后处理 | 0.814276 | 10.904111 | 0.692376 | 当前线上最佳 Task2 |
 | task3_vid | v10 | Unet++ ResNet34 ImageNet bestcfg | 0.768802 | 104.463167 | 15.432556 | 当前最均衡 Task3 |
 
 ## Task1 CT
@@ -41,33 +41,42 @@
 
 ## Task2 TEE
 
-- 最优线上版本：`v10`
+- 最优线上版本：`v14`
 - 模型：`3D UNet large`
-- 训练配置：150 epochs，batch size 1，learning rate `3e-4`，weight decay `1e-5`
-- ROI：`160 160 160`
+- 训练配置：200 epochs 配置，实际训练到 epoch 121 后停止，batch size 1，learning rate `2e-4`，weight decay `1e-5`
+- ROI：`192 192 160`
 - 类别数：3
 - train crops：`2`
 - sliding-window batch size：`1`
 - 评分权重：DSC `0.5`，HD `0.25`，ASD `0.25`
 - seed：`42`
-- best epoch：`78`
-- checkpoint：`outputs/exp/task2_large_e150_b1_roi160_c2_lr3e4_score525_bestcfg/checkpoints/best_model.pt`
+- best epoch：`86`
+- checkpoint：`outputs/exp/task2_unet_large_e200_b1_roi192x192x160_c2_lr2e4_score525_v13/checkpoints/best_model.pt`
+- 后处理：`min_size=100, keep_components=1, fill_holes=True, close_iters=0`
 
 线上结果：
 
 | DSC | HD | ASD |
 |---:|---:|---:|
-| 0.805315 | 16.629738 | 0.926641 |
+| 0.814276 | 10.904111 | 0.692376 |
 
 本地验证记录：
 
 | score | DSC | HD | ASD |
 |---:|---:|---:|---:|
-| 0.6853937357 | 0.7810249329 | 46.1612014771 | 2.4988479614 |
+| - | 0.8060218692 | 27.6713314056 | 1.9451344013 |
+
+相对 v10 Task2 线上结果：
+
+| Metric | v10 online | v14 online | Delta |
+|---|---:|---:|---:|
+| DSC | 0.805315 | 0.814276 | +0.008961 |
+| HD | 16.629738 | 10.904111 | -5.725627 |
+| ASD | 0.926641 | 0.692376 | -0.234265 |
 
 ### Task2 v13 本地候选
 
-本轮训练用于尝试更大 ROI 和更长训练，当前只完成本地验证，尚未形成线上提交记录。
+本轮训练用于尝试更大 ROI 和更长训练，本地验证优于 v10 Task2，并已通过 `v14` 在线上验证刷新 Task2。
 
 - run dir：`outputs/exp/task2_unet_large_e200_b1_roi192x192x160_c2_lr2e4_score525_v13`
 - 模型：`3D UNet large`
@@ -131,7 +140,20 @@
 | HD | 31.4974613190 | 27.6713314056 | -3.8261299133 |
 | ASD | 1.9927623272 | 1.9451344013 | -0.0476279259 |
 
-判断：Task2 后处理确实有效，主要改善 HD，且没有牺牲 DSC。下一步适合把该后处理接入 Task2 submission generation，并在 v15/v14 当前 best checkpoint 上复测。
+判断：Task2 后处理确实有效，主要改善 HD，且没有牺牲 DSC。v14 线上结果进一步确认 v13+post 是当前 Task2 最优方案。
+
+#### Task2 v13+post 提交 v14
+
+- 提交版本：`v14`
+- 提交目录：`outputs/submissions/submit_v14_task2_v13_post/submission`
+- 提交压缩包：`outputs/submissions/submit_v14_task2_v13_post/submission.zip`
+- 记录文件：`outputs/submissions/submit_v14_task2_v13_post/checkpoint_record.md`
+- 组成：Task1 复制 v10；Task2 使用 v13 batch size 1 权重并开启后处理；Task3 复制 v10
+- Task2 checkpoint：`outputs/exp/task2_unet_large_e200_b1_roi192x192x160_c2_lr2e4_score525_v13/checkpoints/best_model.pt`
+- Task2 后处理参数：`min_size=100, keep_components=1, fill_holes=True, close_iters=0`
+- 本地 Task2 post 结果：DSC `0.8060218692`，HD `27.6713314056`，ASD `1.9451344013`
+- 线上结果：DSC `0.8142756501175983`，HD `10.904111011547963`，ASD `0.6923764603409446`
+- 状态：已完成线上测评，Task2 明确刷新线上最佳
 
 ## Task3 VID
 
@@ -177,12 +199,16 @@ Task3 额外说明：
 
 ## 推荐提交
 
-推荐主提交：`outputs/submissions/submit_v10_bestcfg_raw/submission.zip`
+当前推荐主提交：`outputs/submissions/submit_v14_task2_v13_post/submission.zip`
 
 对应三项线上结果：
 
 ```text
-task1_ct: DSC 0.810562, HD 6.902283, ASD 0.396594
-task2_tee: DSC 0.805315, HD 16.629738, ASD 0.926641
-task3_vid: DSC 0.768802, HD 104.463167, ASD 15.432556
+task1_ct: DSC 0.8105616221627818, HD 6.902283124940843, ASD 0.3965936972734582
+task2_tee: DSC 0.8142756501175983, HD 10.904111011547963, ASD 0.6923764603409446
+task3_vid: DSC 0.7688017739874856, HD 104.46316699246366, ASD 15.432556307858986
 ```
+
+历史已验证基线：`outputs/submissions/submit_v10_bestcfg_raw/submission.zip`
+
+v14 相比 v10 只改变 Task2；Task1/Task3 预测文件与 v10 相同，线上结果也一致。
