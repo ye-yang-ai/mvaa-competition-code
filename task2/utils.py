@@ -106,8 +106,8 @@ def update_metric_refs(refs: MetricRefs, hd: float, asd: float, momentum: float 
     return refs
 
 
-def get_device() -> torch.device:
-    requested = os.environ.get("MVAA_DEVICE", "").strip()
+def get_device(requested: str | None = None) -> torch.device:
+    requested = (requested if requested is not None else os.environ.get("MVAA_DEVICE", "")).strip()
     if requested:
         device = torch.device(requested)
         if device.type == "cuda":

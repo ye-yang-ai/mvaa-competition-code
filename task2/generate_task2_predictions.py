@@ -21,6 +21,7 @@ from monai.transforms import (
     ScaleIntensityRanged,
     Spacingd,
 )
+from scipy import ndimage as ndi
 
 from model_factory import get_model
 from utils import get_device
@@ -40,6 +41,11 @@ SUBMISSION_TASK_DIR = THIS_DIR.parent / "submission" / "t2_tee"
 PRED_DIR = SUBMISSION_TASK_DIR
 OUTPUT_JSON = SUBMISSION_TASK_DIR / "task2_predictions.json"
 NUM_WORKERS = 0
+ENABLE_POSTPROCESS = True
+POST_MIN_SIZE = 100
+POST_KEEP_COMPONENTS = 1
+POST_FILL_HOLES = True
+POST_CLOSE_ITERS = 0
 # ==============================
 
 
@@ -49,6 +55,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data-dir", type=Path, default=DATA_DIR)
     parser.add_argument("--submission-task-dir", type=Path, default=SUBMISSION_TASK_DIR)
     parser.add_argument("--num-workers", type=int, default=NUM_WORKERS)
+    parser.add_argument("--device", type=str, default="", help="Optional torch device, e.g. cuda:4")
+    post_group = parser.add_mutually_exclusive_group()
+    post_group.add_argument("--postprocess", dest="postprocess", action="store_true", help="Enable mask post-processing.")
+    post_group.add_argument("--no-postprocess", dest="postprocess", action="store_false", help="Disable mask post-processing.")
+    parser.set_defaults(postprocess=ENABLE_POSTPROCESS)
+    parser.add_argument("--post-min-size", type=int, default=POST_MIN_SIZE)
+    parser.add_argument("--post-keep-components", type=int, default=POST_KEEP_COMPONENTS)
+    parser.add_argument("--post-fill-holes", action="store_true", default=POST_FILL_HOLES)
+    parser.add_argument("--post-no-fill-holes", dest="post_fill_holes", action="store_false")
+    parser.add_argument("--post-close-iters", type=int, default=POST_CLOSE_ITERS)
     return parser.parse_args()
 
 
@@ -141,6 +157,51 @@ def resize_mask_to_shape(mask: np.ndarray, out_shape: Tuple[int, int, int]) -> n
     return y[0, 0].to(dtype=torch.uint8).cpu().numpy()
 
 
+def postprocess_multiclass(
+    mask: np.ndarray,
+    num_classes: int,
+    min_size: int,
+    keep_components: int,
+    fill_holes: bool,
+    close_iters: int,
+) -> np.ndarray:
+    out = np.zeros_like(mask, dtype=np.uint8)
+    structure = ndi.generate_binary_structure(mask.ndim, 1)
+
+    for cls in range(1, num_classes):
+        binary = mask == cls
+        if not binary.any():
+            continue
+
+        if close_iters > 0:
+            binary = ndi.binary_closing(binary, structure=structure, iterations=close_iters)
+        if fill_holes:
+            binary = ndi.binary_fill_holes(binary)
+
+        labeled, n_labels = ndi.label(binary, structure=structure)
+        if n_labels == 0:
+            continue
+
+        sizes = np.bincount(labeled.ravel())
+        sizes[0] = 0
+        component_ids = np.argsort(sizes)[::-1]
+        kept = np.zeros_like(binary, dtype=bool)
+        kept_count = 0
+        for component_id in component_ids:
+            if component_id == 0 or sizes[component_id] <= 0:
+                continue
+            if sizes[component_id] < min_size:
+                continue
+            kept |= labeled == component_id
+            kept_count += 1
+            if keep_components > 0 and kept_count >= keep_components:
+                break
+
+        out[kept] = cls
+
+    return out
+
+
 @torch.no_grad()
 def main() -> int:
     args = parse_args()
@@ -163,7 +224,7 @@ def main() -> int:
     files = discover_images(data_dir)
     loader = build_loader(files, enable_spacing_resample, target_spacing, args.num_workers)
 
-    device = get_device()
+    device = get_device(args.device)
     model = get_model(
         name=model_name,
         model_size=model_size,
@@ -184,6 +245,12 @@ def main() -> int:
     print(f"Checkpoint: {ckpt_path}")
     print(f"Input cases: {len(files)}")
     print(f"Save labels to: {pred_dir}")
+    print(
+        "Postprocess: "
+        f"enabled={args.postprocess}, min_size={args.post_min_size}, "
+        f"keep_components={args.post_keep_components}, fill_holes={args.post_fill_holes}, "
+        f"close_iters={args.post_close_iters}"
+    )
 
     records = []
     total = len(loader)
@@ -196,6 +263,15 @@ def main() -> int:
         image_path = Path(str(batch["image_path"][0]))
         source_img = nib.load(str(image_path))
         pred_mask = resize_mask_to_shape(pred_mask, tuple(int(x) for x in source_img.shape[:3]))
+        if args.postprocess:
+            pred_mask = postprocess_multiclass(
+                pred_mask,
+                num_classes=num_classes,
+                min_size=args.post_min_size,
+                keep_components=args.post_keep_components,
+                fill_holes=args.post_fill_holes,
+                close_iters=args.post_close_iters,
+            )
         save_path = pred_dir / f"{case_id}-pred.nii.gz"
 
         save_prediction_nifti(pred_mask, image_path, save_path)

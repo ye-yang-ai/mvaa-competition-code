@@ -95,6 +95,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-train-cases", type=int, default=0, help="Debug only, 0 means all")
     parser.add_argument("--max-val-cases", type=int, default=0, help="Debug only, 0 means all")
     parser.add_argument("--log-name", type=str, default="train.log", help="Training log file name")
+    parser.add_argument("--device", type=str, default="", help="Optional torch device, e.g. cuda:4")
     parser.add_argument("--score-dsc-weight", type=float, default=0.6, help="Best-model score weight for DSC")
     parser.add_argument("--score-hd-weight", type=float, default=0.2, help="Best-model score weight for HD quality")
     parser.add_argument("--score-asd-weight", type=float, default=0.2, help="Best-model score weight for ASD quality")
@@ -187,7 +188,7 @@ def main() -> int:
     args = parse_args()
     seed_everything(args.seed)
 
-    device = get_device()
+    device = get_device(args.device)
     args.num_workers = args.num_workers if device.type == "cuda" else 0
     if device.type == "cuda":
         torch.backends.cudnn.benchmark = True
