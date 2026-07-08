@@ -197,6 +197,35 @@ Task3 额外说明：
 
 因此如果只追 Task3 DSC，可考虑 `v12`；如果看三项指标的平衡，继续用 `v10`。
 
+### Task3 v10 阈值/后处理搜索
+
+评估脚本：`task3/evaluate_task3_postprocess_grid.py`
+
+验证 checkpoint：`outputs/exp/task3_unetpp_res34_imagenet_e100_bs2_bestcfg/checkpoints/best.pt`
+
+验证 split：`seed=42, val_video_count=2`，验证视频为 `REC_20250205_102353_979A`、`REC_20250322_101917_746A`，共 60 frames，其中 39 foreground frames、21 empty frames。指标在 448x800 验证尺寸上计算。
+
+第一轮聚焦搜索：
+
+- 目录：`outputs/analysis/task3_postprocess_grid/v10_focused`
+- 搜索：threshold `0.20-0.35`，`min_area=0/50/80/120/200/500`，`keep_top=0/1/2/3`，`fill_holes=0/1`，`close_iters=0/1`
+
+第二轮细阈值搜索：
+
+- 目录：`outputs/analysis/task3_postprocess_grid/v10_thr_fine`
+- 搜索：threshold `0.275-0.325`，步长 `0.005`，`min_area=0/50/80/120`，不做连通域保留、fill holes 或 close
+
+本地验证最佳：
+
+| 配置 | score | DSC fg | DSC all | HD | ASD | empty FP rate |
+|---|---:|---:|---:|---:|---:|---:|
+| baseline `threshold=0.25` | 0.596360 | 0.823322 | 0.585159 | 58.718449 | 8.638582 | 0.857143 |
+| best score `threshold=0.285` | 0.600255 | 0.825315 | 0.603122 | 56.539052 | 8.362578 | 0.809524 |
+| best Dice `threshold=0.275` | 0.598494 | 0.825421 | 0.603191 | 58.734287 | 8.442252 | 0.809524 |
+| simple robust `threshold=0.30` | 0.600224 | 0.825068 | 0.602961 | 56.622837 | 8.325177 | 0.809524 |
+
+判断：当前 split 上，连通域/填洞/close 没有超过单纯调高阈值；`threshold=0.285` 综合分最高，`threshold=0.30` 的 ASD 略好且更保守。下一版 Task3 线上验证建议优先用 v10 checkpoint + TTA + `threshold=0.285`，不启用后处理；若担心线上误检，可用 `threshold=0.30` 做保守版本。
+
 ## 推荐提交
 
 当前推荐主提交：`outputs/submissions/submit_v14_task2_v13_post/submission.zip`
