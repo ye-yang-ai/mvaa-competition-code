@@ -1,0 +1,338 @@
+# MVAA 2026 Submission Scores v1-v19
+
+本文档记录已知线上评测结果。v1-v3 如果没有明确保存到对话中的完整结果，暂不补猜；从有明确结果的版本开始记录。
+
+## 版本说明
+
+| Version | 主要配置 | 备注 |
+|---|---|---|
+| v4 | Task1 best + Task2 best 当时版本 + Task3 medium 后处理 | Task2 较早版本，Task3 后处理改善 HD/ASD |
+| v5-light | Task1 best + Task2 UNet seed43 + Task3 light 后处理 | Task2 大幅提升，Task3 light 弱于 medium |
+| v5-medium | Task1 best + Task2 UNet seed43 + Task3 medium 后处理 | 用户报告结果与 v5-light 完全一致；本地文件与 light 不同，疑似上传/缓存/复制问题 |
+| v6 | Task1 best + Task2 UNet seed43 0.5 / SegResNet base 0.5 + Task3 medium | 旧最佳，已被 v9 小幅超过 |
+| v7 | Task1 best + Task2 UNet seed43 0.7 / SegResNet base 0.3 + Task3 medium | 偏 UNet 后下降 |
+| v8 | Task1 best + Task2 UNet seed43 0.4 / SegResNet base 0.6 + Task3 medium | 用户报告与 v7 完全一致；本地文件与 v7 不同，疑似异常 |
+| v9 | Task1 best + Task2 UNet seed43 0.5 / SegResNet base 0.25 / SegResNet large 0.25 + Task3 medium | 曾为线上 Task2 最佳，已被 v10 超过 |
+| v10 | best_task_configs 单模型提交：Task1 SegResNet bestcfg + Task2 large ROI160 bestcfg + Task3 Unet++ ResNet34 bestcfg | 三个 task 均刷新当前线上最佳 |
+| v11 | v10 + Task3 保守二值后处理 `min_area=400, keep_top=2, close_iters=1` | Task3 HD 小幅优于 v10，但 DSC/ASD 下降 |
+| v12 | v10 Task1/Task2 + Task3 ResNet34/EfficientNet-B4 概率 ensemble `0.5/0.5, threshold=0.15` | Task3 DSC 当前最高，但 HD 明显变差 |
+| v14 | v10 Task1/Task3 + Task2 v13 batch size 1 ROI192 权重 + Task2 后处理 | Task2 明确刷新线上最佳；曾为推荐主提交 |
+| v15 | v14 Task1/Task2 + Task3 v10 checkpoint TTA `threshold=0.285` | Task3 DSC/HD/ASD 相对 v10/v14 全部改善；曾为推荐主提交 |
+| v16 | Task1 nnU-Net 5fold final checkpoint + Task2 v14 + Task3 v15 | Task1 大幅刷新，Task2/Task3 保持当前最强配置；距离指标最优 |
+| v17 | Task1 nnU-Net 5fold best checkpoint + Task2 v14 + Task3 v15 | Task1 DSC 最高；曾为主提交，现作为 Task1 稳定基线 |
+| v18 | v17 Task1 + 轻量小连通域删除，Task2 v14 + Task3 v15 | 后处理收益不明显；相对 v17，HD 小幅改善但 DSC/ASD 变差，不推荐 |
+| v19 | Task1 v17 + Task2 nnU-Net 5fold best checkpoint ensemble + Task3 v15 | Task2 DSC 和 ASD 刷新历史最佳；HD 略差于 v14 |
+
+## 总表
+
+数值均为线上评测结果。DSC 越高越好，HD/ASD 越低越好。
+
+| Version | Task | DSC | HD | ASD | Notes |
+|---|---|---:|---:|---:|---|
+| v4 | task1_ct | 0.788095 | 7.392809 | 0.448069 | 与后续版本一致 |
+| v4 | task2_tee | 0.721137 | 28.747381 | 2.264272 | 较早 Task2 best |
+| v4 | task3_vid | 0.751156 | 214.696681 | 28.867822 | medium 后处理 |
+| v5-light | task1_ct | 0.788095 | 7.392809 | 0.448069 | 与 v4 一致 |
+| v5-light | task2_tee | 0.757979 | 24.674981 | 1.660142 | UNet seed43 |
+| v5-light | task3_vid | 0.749944 | 234.375817 | 31.135561 | light 后处理，弱于 medium |
+| v5-medium | task1_ct | 0.788095 | 7.392809 | 0.448069 | 用户报告 |
+| v5-medium | task2_tee | 0.757979 | 24.674981 | 1.660142 | 用户报告 |
+| v5-medium | task3_vid | 0.749944 | 234.375817 | 31.135561 | 用户报告与 light 完全一致，疑似异常 |
+| v6 | task1_ct | 0.788095 | 7.392809 | 0.448069 | 与 v4 一致 |
+| v6 | task2_tee | 0.770411 | 22.691037 | 1.489703 | UNet + SegResNet base 0.5/0.5，旧最佳 Task2 |
+| v6 | task3_vid | 0.751156 | 214.696681 | 28.867822 | medium 后处理 |
+| v7 | task1_ct | 0.788095 | 7.392809 | 0.448069 | 与 v6 一致 |
+| v7 | task2_tee | 0.764245 | 23.753866 | 1.618962 | UNet 0.7 / SegResNet base 0.3，弱于 v6 |
+| v7 | task3_vid | 0.751156 | 214.696681 | 28.867822 | 与 v6 一致 |
+| v8 | task1_ct | 0.788095 | 7.392809 | 0.448069 | 用户报告 |
+| v8 | task2_tee | 0.764245 | 23.753866 | 1.618962 | 用户报告与 v7 完全一致，疑似异常 |
+| v8 | task3_vid | 0.751156 | 214.696681 | 28.867822 | 与 v7 一致 |
+| v9 | task1_ct | 0.788095 | 7.392809 | 0.448069 | 与 v4-v8 一致 |
+| v9 | task2_tee | 0.771490 | 21.974976 | 1.429489 | 三模型 ensemble，曾为最佳 Task2 |
+| v9 | task3_vid | 0.751156 | 214.696681 | 28.867823 | 与 v6-v8 一致 |
+| v10 | task1_ct | 0.810562 | 6.902283 | 0.396594 | bestcfg 单模型，当前最佳 Task1 |
+| v10 | task2_tee | 0.805315 | 16.629738 | 0.926641 | bestcfg large ROI160 单模型，当前最佳 Task2 |
+| v10 | task3_vid | 0.768802 | 104.463167 | 15.432556 | Unet++ ResNet34 bestcfg，Task3 当前最均衡 |
+| v11 | task1_ct | 0.810562 | 6.902283 | 0.396594 | 与 v10 相同 |
+| v11 | task2_tee | 0.805315 | 16.629738 | 0.926641 | 与 v10 相同 |
+| v11 | task3_vid | 0.754698 | 99.258927 | 17.491449 | v10 Task3 保守后处理；HD 当前最好，但 DSC/ASD 下降 |
+| v12 | task1_ct | 0.810562 | 6.902283 | 0.396594 | 与 v10 相同 |
+| v12 | task2_tee | 0.805315 | 16.629738 | 0.926641 | 与 v10 相同 |
+| v12 | task3_vid | 0.790226 | 138.577390 | 16.059344 | Task3 概率 ensemble；DSC 当前最高，但 HD 变差 |
+| v14 | task1_ct | 0.810562 | 6.902283 | 0.396594 | 与 v10 相同，num_cases 30，missing_cases 0 |
+| v14 | task2_tee | 0.814276 | 10.904111 | 0.692376 | v13 batch size 1 ROI192 checkpoint + 后处理，曾为线上最佳 Task2；当前 Task2 HD 仍略优于 v19，num_cases 20，missing_cases 0 |
+| v14 | task3_vid | 0.768802 | 104.463167 | 15.432556 | 与 v10 相同，num_cases 48，missing_cases 0 |
+| v15 | task1_ct | 0.810562 | 6.902283 | 0.396594 | 与 v14 相同，num_cases 30，missing_cases 0 |
+| v15 | task2_tee | 0.814276 | 10.904111 | 0.692376 | 与 v14 相同，num_cases 20，missing_cases 0 |
+| v15 | task3_vid | 0.770197 | 95.627329 | 14.537786 | v10 checkpoint + TTA + `threshold=0.285`，Task3 三项相对 v10/v14 全部改善，num_cases 48，missing_cases 0 |
+| v16 | task1_ct | 0.857340 | 4.583182 | 0.278065 | nnU-Net 5fold ensemble，Task1 大幅刷新，num_cases 30，missing_cases 0 |
+| v16 | task2_tee | 0.814276 | 10.904111 | 0.692376 | 与 v14/v15 相同，num_cases 20，missing_cases 0 |
+| v16 | task3_vid | 0.770197 | 95.627329 | 14.537786 | 与 v15 相同，num_cases 48，missing_cases 0 |
+| v17 | task1_ct | 0.857539 | 4.631175 | 0.279265 | nnU-Net 5fold `checkpoint_best.pth` ensemble，DSC 略高于 v16，HD/ASD 略差，num_cases 30，missing_cases 0 |
+| v17 | task2_tee | 0.814276 | 10.904111 | 0.692376 | 与 v14/v15/v16 相同，num_cases 20，missing_cases 0 |
+| v17 | task3_vid | 0.770197 | 95.627329 | 14.537786 | 与 v15/v16 相同，num_cases 48，missing_cases 0 |
+| v18 | task1_ct | 0.857534 | 4.603581 | 0.280489 | v17 + `min_size=100` 小连通域删除；相对 v17 HD 略好，但 DSC/ASD 变差，num_cases 30，missing_cases 0 |
+| v18 | task2_tee | 0.814276 | 10.904111 | 0.692376 | 与 v14/v15/v16/v17 相同，num_cases 20，missing_cases 0 |
+| v18 | task3_vid | 0.770197 | 95.627329 | 14.537786 | 与 v15/v16/v17 相同，num_cases 48，missing_cases 0 |
+| v19 | task1_ct | 0.857539 | 4.631175 | 0.279265 | 与 v17 相同，num_cases 30，missing_cases 0 |
+| v19 | task2_tee | 0.846325 | 11.196889 | 0.640635 | nnU-Net Dataset102 3d_fullres 5fold `checkpoint_best.pth` ensemble；DSC/ASD 当前 Task2 最佳，HD 略差于 v14，num_cases 20，missing_cases 0 |
+| v19 | task3_vid | 0.770197 | 95.627329 | 14.537786 | 与 v15/v17 相同，num_cases 48，missing_cases 0 |
+
+## Task1 对比
+
+| Version | Task1 配置 | DSC | HD | ASD | 相对判断 |
+|---|---|---:|---:|---:|---|
+| v10-v15 | SegResNet base bestcfg | 0.810562 | 6.902283 | 0.396594 | 旧线上最佳 Task1 |
+| v16 | nnU-Net 5fold `checkpoint_final.pth` ensemble | 0.857340 | 4.583182 | 0.278065 | 明确大幅刷新 Task1，HD/ASD 当前最好 |
+| v17 | nnU-Net 5fold `checkpoint_best.pth` ensemble | 0.857539 | 4.631175 | 0.279265 | DSC 当前最高，但 HD/ASD 略逊于 v16 |
+| v18 | v17 + min_size=100 postprocess | 0.857534 | 4.603581 | 0.280489 | 后处理收益不明显；不推荐替代 v17/v16 |
+
+## Task2 对比
+
+| Version | Task2 配置 | DSC | HD | ASD | 相对判断 |
+|---|---|---:|---:|---:|---|
+| v4 | 早期 Task2 best | 0.721137 | 28.747381 | 2.264272 | 旧基线 |
+| v5-light / reported v5-medium | UNet seed43 | 0.757979 | 24.674981 | 1.660142 | 明显提升 |
+| v6 | UNet 0.5 + SegResNet base 0.5 | 0.770411 | 22.691037 | 1.489703 | 旧最佳，仍很强 |
+| v7 | UNet 0.7 + SegResNet base 0.3 | 0.764245 | 23.753866 | 1.618962 | 偏 UNet 下降 |
+| v8 | UNet 0.4 + SegResNet base 0.6 | 0.764245 | 23.753866 | 1.618962 | 用户报告与 v7 完全一致，需谨慎解释 |
+| v9 | UNet 0.5 + base 0.25 + large 0.25 | 0.771490 | 21.974976 | 1.429489 | 曾为线上最佳，large 分支带来小幅稳定收益 |
+| v10 | large ROI160 bestcfg 单模型 | 0.805315 | 16.629738 | 0.926641 | 明显刷新 Task2，说明该单模型泛化强于 v9 ensemble |
+| v14 | v13 large ROI192 batch size 1 + 后处理 | 0.814276 | 10.904111 | 0.692376 | 明确刷新线上 Task2；相对 v10 三项指标全部改善 |
+| v19 | nnU-Net Dataset102 3d_fullres 5fold `checkpoint_best.pth` ensemble | 0.846325 | 11.196889 | 0.640635 | DSC 大幅刷新 Task2 历史最佳，ASD 也最佳；HD 略差于 v14 |
+
+## Task3 对比
+
+| Version | Task3 配置 | DSC | HD | ASD | 相对判断 |
+|---|---|---:|---:|---:|---|
+| v9 | 旧 medium 后处理 | 0.751156 | 214.696681 | 28.867823 | 旧基线 |
+| v10 | Unet++ ResNet34 bestcfg 单模型 | 0.768802 | 104.463167 | 15.432556 | 当前最均衡，ASD 最好 |
+| v11 | v10 二值后处理 `min_area=400, keep_top=2, close_iters=1` | 0.754698 | 99.258927 | 17.491449 | HD 当前最好，但后处理伤了 DSC 和 ASD |
+| v12 | v10 ResNet34 + EfficientNet-B4 概率 ensemble `0.5/0.5, thr=0.15` | 0.790226 | 138.577390 | 16.059344 | DSC 当前最高，但远端误差变多，HD 明显差于 v10/v11 |
+| v15 | v10 checkpoint + TTA + `threshold=0.285` | 0.770197 | 95.627329 | 14.537786 | 相对 v10/v14 三项全部改善；当前 Task3 最均衡 |
+
+## 当前结论
+
+当前按 DSC 优先策略选择 **v19** 作为主提交：Task1 复用 v17，Task2 使用 nnU-Net 5fold ensemble 并刷新 DSC/ASD，Task3 复用 v15。如果更重视 Task1 的 HD/ASD，则 v16 是距离指标备选；如果只看 Task2 HD，则 v14 仍略好。
+
+```text
+task1_ct: DSC 0.8575385873310171, HD 4.6311747736863405, ASD 0.2792648483145077
+task2_tee: DSC 0.8463245904808815, HD 11.196888629485855, ASD 0.6406354094949988
+task3_vid: DSC 0.7701966979705538, HD 95.62732850814587, ASD 14.537786225800227
+```
+
+v16 相比 v15 只改变 Task1，Task2/Task3 结果保持一致；Task1 的 DSC、HD、ASD 三项全部大幅改善。
+
+v17 相比 v16 只把 Task1 从 `checkpoint_final.pth` ensemble 换成 `checkpoint_best.pth` ensemble。Task1 DSC 提高 `+0.000198`，但 HD 增加 `+0.047993`，ASD 增加 `+0.001200`。
+
+v18 相比 v17 增加了 Task1 轻量小连通域删除：DSC 降低 `-0.000005`，HD 改善 `-0.027594`，ASD 变差 `+0.001224`。整体收益不明显，不建议替代 v17；若看距离指标，v16 仍更好。
+
+| Task1 Metric | v15 | v16 final | v17 best | v18 post | 当前最好 |
+|---|---:|---:|---:|---:|---|
+| DSC | 0.810562 | 0.857340 | 0.857539 | 0.857534 | v17 |
+| HD | 6.902283 | 4.583182 | 4.631175 | 4.603581 | v16 |
+| ASD | 0.396594 | 0.278065 | 0.279265 | 0.280489 | v16 |
+
+| Task2 Metric | v10 | v14/v15 | Delta |
+|---|---:|---:|---:|
+| DSC | 0.805315 | 0.814276 | +0.008961 |
+| HD | 16.629738 | 10.904111 | -5.725627 |
+| ASD | 0.926641 | 0.692376 | -0.234265 |
+
+| Task2 Metric | v14/v17/v18 | v19 nnU-Net 5fold | Delta |
+|---|---:|---:|---:|
+| DSC | 0.814276 | 0.846325 | +0.032049 |
+| HD | 10.904111 | 11.196889 | +0.292778 |
+| ASD | 0.692376 | 0.640635 | -0.051741 |
+
+v11 / v12 / v15 主要只改变 Task3：
+
+| Metric | v10 | v11 | v12 | v15 | 当前最好 |
+|---|---:|---:|---:|---:|---|
+| Task3 DSC | 0.768802 | 0.754698 | 0.790226 | 0.770197 | v12 |
+| Task3 HD | 104.463167 | 99.258927 | 138.577390 | 95.627329 | v15 |
+| Task3 ASD | 15.432556 | 17.491449 | 16.059344 | 14.537786 | v15 |
+
+判断：v12 仍是 Task3 DSC 最高，但 HD 明显变差。v15 的阈值搜索结果在线上成立，虽然 DSC 只小幅超过 v10/v14，但 HD 和 ASD 明显改善。v16 在 v15 基础上用 nnU-Net 5fold 大幅刷新 Task1；v17 进一步小幅提高 Task1 DSC，但牺牲少量 HD/ASD。v18 的小连通域删除没有带来明确收益。v19 在 v17 基础上只替换 Task2 为 nnU-Net 5fold ensemble，Task2 DSC 大幅刷新且 ASD 降低，虽然 HD 略差于 v14，但按 DSC 优先应替代 v17 成为当前主提交。
+
+v10 相比 v9 的改善：
+
+| Task | Metric | v9 | v10 | Delta |
+|---|---|---:|---:|---:|
+| task1_ct | DSC | 0.788095 | 0.810562 | +0.022467 |
+| task1_ct | HD | 7.392809 | 6.902283 | -0.490526 |
+| task1_ct | ASD | 0.448069 | 0.396594 | -0.051475 |
+| task2_tee | DSC | 0.771490 | 0.805315 | +0.033825 |
+| task2_tee | HD | 21.974976 | 16.629738 | -5.345238 |
+| task2_tee | ASD | 1.429489 | 0.926641 | -0.502849 |
+| task3_vid | DSC | 0.751156 | 0.768802 | +0.017646 |
+| task3_vid | HD | 214.696681 | 104.463167 | -110.233514 |
+| task3_vid | ASD | 28.867823 | 15.432556 | -13.435266 |
+
+判断：v10 是一次明确的大幅提升，不是随机小波动。三个 task 的 DSC 都升高，同时 HD/ASD 都下降，说明体素重叠和边界质量一起改善。Task2 提升最稳定，Task3 的距离指标改善最大。
+
+## v14 提交记录
+
+- 提交目录：`outputs/submissions/submit_v14_task2_v13_post/submission`
+- 提交压缩包：`outputs/submissions/submit_v14_task2_v13_post/submission.zip`
+- 记录文件：`outputs/submissions/submit_v14_task2_v13_post/checkpoint_record.md`
+- 生成时间：2026-07-07
+- 文件检查：submission 目录共 `101` 个文件；zip 根目录为 `t1_ct/`、`t2_tee/`、`t3_vid/`
+- 线上状态：已测评通过，三个 task 均 `ok`，missing_cases 均为 `0`
+
+组成：
+
+| Task | 来源 | 说明 |
+|---|---|---|
+| task1_ct | v10 | 直接复制 `submit_v10_bestcfg_raw/submission/t1_ct` |
+| task2_tee | v13 + post | 使用 `outputs/exp/task2_unet_large_e200_b1_roi192x192x160_c2_lr2e4_score525_v13/checkpoints/best_model.pt` 重新生成 |
+| task3_vid | v10 | 直接复制 `submit_v10_bestcfg_raw/submission/t3_vid` |
+
+Task2 v14 后处理参数：
+
+| 参数 | 值 |
+|---|---|
+| `postprocess` | enabled |
+| `post_min_size` | 100 |
+| `post_keep_components` | 1 |
+| `post_fill_holes` | true |
+| `post_close_iters` | 0 |
+
+v14 当前状态：已完成线上测评，Task2 线上结果为 DSC `0.8142756501175983`，HD `10.904111011547963`，ASD `0.6923764603409446`。v15 已在此基础上刷新 Task3，v16/v17 又进一步刷新 Task1，v19 进一步刷新 Task2 DSC/ASD。若单独看 Task2 HD，v14 仍略好。
+
+## v15 提交记录
+
+- 提交目录：`outputs/submissions/submit_v15_task3_thr0285/submission`
+- 提交压缩包：`outputs/submissions/submit_v15_task3_thr0285/submission.zip`
+- 记录文件：`outputs/submissions/submit_v15_task3_thr0285/checkpoint_record.md`
+- 生成时间：2026-07-08
+- 文件检查：submission 目录共 `101` 个文件；zip 根目录为 `t1_ct/`、`t2_tee/`、`t3_vid/`
+- 线上状态：已测评通过，三个 task 均 `ok`，missing_cases 均为 `0`
+
+组成：
+
+| Task | 来源 | 说明 |
+|---|---|---|
+| task1_ct | v14 / v10 | 直接复制 `submit_v14_task2_v13_post/submission/t1_ct` |
+| task2_tee | v14 | 直接复制 `submit_v14_task2_v13_post/submission/t2_tee` |
+| task3_vid | v10 checkpoint 重新生成 | TTA enabled，`threshold=0.285`，不启用后处理 |
+
+线上结果：
+
+```text
+task1_ct: DSC 0.8105616221627818, HD 6.902283124940843, ASD 0.3965936972734582
+task2_tee: DSC 0.8142756501175983, HD 10.904111011547963, ASD 0.6923764603409446
+task3_vid: DSC 0.7701966979705538, HD 95.62732850814587, ASD 14.537786225800227
+```
+
+## v18 提交记录
+
+- 提交目录：`outputs/submissions/submit_v18_task1_v17_post_min100_task2_v14_task3_v15/submission`
+- 提交压缩包：`outputs/submissions/submit_v18_task1_v17_post_min100_task2_v14_task3_v15/submission.zip`
+- 记录文件：`outputs/submissions/submit_v18_task1_v17_post_min100_task2_v14_task3_v15/checkpoint_record.md`
+- 生成时间：2026-07-08
+- 文件检查：submission 目录共 `101` 个文件；zip 根目录为 `t1_ct/`、`t2_tee/`、`t3_vid/`
+- 线上状态：已测评通过，三个 task 均 `ok`，missing_cases 均为 `0`
+
+组成：
+
+| Task | 来源 | 说明 |
+|---|---|---|
+| task1_ct | v17 + 轻量后处理 | 删除小于 100 voxels 的连通域，`keep_components=0`，不填洞，不 closing |
+| task2_tee | v14 | Task2 v13 ROI192 + 后处理 |
+| task3_vid | v15 | v10 checkpoint + TTA + `threshold=0.285` |
+
+线上结果：
+
+```text
+task1_ct: DSC 0.8575338882053642, HD 4.603580536897585, ASD 0.2804887549429751
+task2_tee: DSC 0.8142756501175983, HD 10.904111011547963, ASD 0.6923764603409446
+task3_vid: DSC 0.7701966979705538, HD 95.62732850814587, ASD 14.537786225800227
+```
+
+判断：v18 不是有效改进。它相对 v17 只小幅改善 HD，但 DSC 与 ASD 下降；相对 v16，HD/ASD 仍更差。
+
+## v19 提交记录
+
+- 提交目录：`outputs/submissions/submit_v19_task2_nnunet5fold_best_task1_v17_task3_v15/submission`
+- 提交压缩包：`outputs/submissions/submit_v19_task2_nnunet5fold_best_task1_v17_task3_v15/submission.zip`
+- 记录文件：`outputs/submissions/submit_v19_task2_nnunet5fold_best_task1_v17_task3_v15/checkpoint_record.md`
+- 生成时间：2026-07-09
+- 文件检查：submission 目录共 `101` 个文件；zip 根目录为 `t1_ct/`、`t2_tee/`、`t3_vid/`
+- 线上状态：已测评通过，三个 task 均 `ok`，missing_cases 均为 `0`
+
+组成：
+
+| Task | 来源 | 说明 |
+|---|---|---|
+| task1_ct | v17 | Task1 nnU-Net 5fold `checkpoint_best.pth` ensemble，无后处理 |
+| task2_tee | nnU-Net v2 5fold ensemble | Dataset102_MVAA_Task2，3d_fullres，fold 0-4，`checkpoint_best.pth` |
+| task3_vid | v15 | v10 checkpoint + TTA + `threshold=0.285` |
+
+线上结果：
+
+```text
+task1_ct: DSC 0.8575385873310171, HD 4.6311747736863405, ASD 0.2792648483145077
+task2_tee: DSC 0.8463245904808815, HD 11.196888629485855, ASD 0.6406354094949988
+task3_vid: DSC 0.7701966979705538, HD 95.62732850814587, ASD 14.537786225800227
+```
+
+判断：v19 是 Task2 的明确 DSC 跃升版本。相对 v14/v17/v18，Task2 DSC 提高约 `+0.032049`，ASD 降低约 `-0.051741`，但 HD 增加约 `+0.292778`。因此按 DSC 或 DSC+ASD 优先，v19 是当前 Task2 最优；如果单独追求 Task2 HD，v14 仍略好。
+
+## v17 提交记录
+
+- 提交目录：`outputs/submissions/submit_v17_task1_nnunet5fold_bestckpt_task2_v14_task3_v15/submission`
+- 提交压缩包：`outputs/submissions/submit_v17_task1_nnunet5fold_bestckpt_task2_v14_task3_v15/submission.zip`
+- 记录文件：`outputs/submissions/submit_v17_task1_nnunet5fold_bestckpt_task2_v14_task3_v15/checkpoint_record.md`
+- 生成时间：2026-07-08
+- 文件检查：submission 目录共 `101` 个文件；zip 根目录为 `t1_ct/`、`t2_tee/`、`t3_vid/`
+- 线上状态：已测评通过，三个 task 均 `ok`，missing_cases 均为 `0`
+
+组成：
+
+| Task | 来源 | 说明 |
+|---|---|---|
+| task1_ct | nnU-Net v2 5fold ensemble | Dataset101_MVAA_Task1，3d_fullres，fold 0-4，`checkpoint_best.pth` |
+| task2_tee | v14 | Task2 v13 ROI192 + 后处理 |
+| task3_vid | v15 | v10 checkpoint + TTA + `threshold=0.285` |
+
+线上结果：
+
+```text
+task1_ct: DSC 0.8575385873310171, HD 4.6311747736863405, ASD 0.2792648483145077
+task2_tee: DSC 0.8142756501175983, HD 10.904111011547963, ASD 0.6923764603409446
+task3_vid: DSC 0.7701966979705538, HD 95.62732850814587, ASD 14.537786225800227
+```
+
+## v16 提交记录
+
+- 提交目录：`outputs/submissions/submit_v16_task1_nnunet5fold_task2_v14_task3_thr0285/submission`
+- 提交压缩包：`outputs/submissions/submit_v16_task1_nnunet5fold_task2_v14_task3_thr0285/submission.zip`
+- 记录文件：`outputs/submissions/submit_v16_task1_nnunet5fold_task2_v14_task3_thr0285/checkpoint_record.md`
+- 生成时间：2026-07-08
+- 文件检查：submission 目录共 `101` 个文件；zip 根目录为 `t1_ct/`、`t2_tee/`、`t3_vid/`
+- 线上状态：已测评通过，三个 task 均 `ok`，missing_cases 均为 `0`
+
+组成：
+
+| Task | 来源 | 说明 |
+|---|---|---|
+| task1_ct | nnU-Net v2 5fold ensemble | Dataset101_MVAA_Task1，3d_fullres，fold 0-4，`checkpoint_final.pth` |
+| task2_tee | v14 | Task2 v13 ROI192 + 后处理 |
+| task3_vid | v15 | v10 checkpoint + TTA + `threshold=0.285` |
+
+线上结果：
+
+```text
+task1_ct: DSC 0.8573401364276171, HD 4.583182167432217, ASD 0.27806529165152766
+task2_tee: DSC 0.8142756501175983, HD 10.904111011547963, ASD 0.6923764603409446
+task3_vid: DSC 0.7701966979705538, HD 95.62732850814587, ASD 14.537786225800227
+```
+
+后续优先级：
+
+1. 保留 v19 作为当前按 DSC 优先策略的主力提交；v17 是 Task1/Task3 稳定基线；v16 作为 Task1 距离指标备选；不建议使用 v18。
+2. 第一优先级继续优化 Task3：v15/v16 证明阈值搜索有效；下一步做多视频 split 验证、空帧误检控制和时序一致性后处理。
+3. 第二优先级优化 Task2：v19 的 nnU-Net 5fold 已显著刷新 DSC，可继续比较 `checkpoint_final.pth`、v14/v19 融合、以及轻量后处理对 HD 的影响。
+4. 第三优先级优化 Task1：小连通域删除已经验证收益不明显；下一步不要继续单纯加大 `min_size`，应优先尝试概率阈值、v16/v17 概率融合、或 fold 权重平均。
+5. v5-medium 和 v8 的线上结果与相邻版本完全一致，且本地 zip/Task2 文件不同，记录时应标注为疑似提交或平台缓存异常。

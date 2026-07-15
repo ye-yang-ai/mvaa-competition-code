@@ -12,6 +12,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from PIL import Image
+from scipy import ndimage as ndi
 
 THIS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = THIS_DIR.parent.parent
@@ -44,6 +45,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-tta", action="store_false", dest="tta")
     parser.add_argument("--amp", action="store_true", default=AMP)
     parser.add_argument("--no-amp", action="store_false", dest="amp")
+    parser.add_argument("--threshold", type=float, default=None, help="Override checkpoint validation threshold")
+    parser.add_argument("--postprocess", action="store_true", default=False)
+    parser.add_argument("--post-min-area", type=int, default=0)
+    parser.add_argument("--post-keep-top", type=int, default=0, help="0 means keep all components after area filtering")
+    parser.add_argument("--post-fill-holes", action="store_true", default=False)
+    parser.add_argument("--post-close-iters", type=int, default=0)
     return parser.parse_args()
 
 
@@ -115,6 +122,37 @@ def load_state_dict(model: torch.nn.Module, ckpt_obj: Dict) -> None:
     model.load_state_dict(state, strict=True)
 
 
+def postprocess_mask(
+    mask: np.ndarray,
+    min_area: int,
+    keep_top: int,
+    fill_holes: bool,
+    close_iters: int,
+) -> np.ndarray:
+    out = mask.astype(bool)
+    labeled, num_components = ndi.label(out)
+    if num_components > 0:
+        areas = np.bincount(labeled.ravel())
+        keep = np.zeros(num_components + 1, dtype=bool)
+        comp_ids = np.arange(1, num_components + 1)
+        comp_areas = areas[1:]
+        valid = comp_ids[comp_areas >= int(min_area)]
+        if int(keep_top) > 0 and valid.size > 0:
+            valid_areas = areas[valid]
+            order = np.argsort(valid_areas)[::-1][: int(keep_top)]
+            valid = valid[order]
+        keep[valid] = True
+        out = keep[labeled]
+    else:
+        out = np.zeros_like(out, dtype=bool)
+
+    if fill_holes:
+        out = ndi.binary_fill_holes(out)
+    if int(close_iters) > 0:
+        out = ndi.binary_closing(out, structure=np.ones((3, 3), dtype=bool), iterations=int(close_iters))
+    return out.astype(np.uint8)
+
+
 @torch.no_grad()
 def predict_probs(model, image_t: torch.Tensor, use_amp: bool, use_tta: bool) -> torch.Tensor:
     device_type = image_t.device.type
@@ -156,7 +194,8 @@ def main() -> int:
     image_size = tuple(int(v) for v in train_args.get("image_size", [448, 800]))
     use_imagenet_norm = bool(train_args.get("use_imagenet_norm", True))
     target_label = int(train_args.get("target_label", 10))
-    threshold = float(ckpt.get("val_metrics", {}).get("val_threshold", 0.5))
+    ckpt_threshold = float(ckpt.get("val_metrics", {}).get("val_threshold", 0.5))
+    threshold = ckpt_threshold if args.threshold is None else float(args.threshold)
 
     files = discover_images(data_dir, IMAGE_EXTS, args.video_folders)
     device = pick_device(args.device)
@@ -179,7 +218,13 @@ def main() -> int:
     print(f"Checkpoint: {ckpt_path}")
     print(f"Input images: {len(files)}")
     print(f"Save labels to: {pred_dir}")
-    print(f"Threshold: {threshold:.4f} | TTA={args.tta}")
+    print(f"Threshold: {threshold:.4f} (ckpt={ckpt_threshold:.4f}) | TTA={args.tta}")
+    print(
+        "Postprocess: "
+        f"enabled={args.postprocess}, min_area={args.post_min_area}, "
+        f"keep_top={args.post_keep_top}, fill_holes={args.post_fill_holes}, "
+        f"close_iters={args.post_close_iters}"
+    )
     print(f"Video folders: {args.video_folders if args.video_folders else '[ALL]'}")
 
     records = []
@@ -201,6 +246,14 @@ def main() -> int:
         pred_small = (probs > threshold).float()
         pred_orig = F.interpolate(pred_small, size=(h, w), mode="nearest")
         pred_mask = (pred_orig[0, 0].detach().cpu().numpy() > 0.5).astype(np.uint8)
+        if args.postprocess:
+            pred_mask = postprocess_mask(
+                pred_mask,
+                min_area=int(args.post_min_area),
+                keep_top=int(args.post_keep_top),
+                fill_holes=bool(args.post_fill_holes),
+                close_iters=int(args.post_close_iters),
+            )
 
         save_path = pred_dir / rel.parent / f"{image_path.stem}_label_bin.png"
         save_path.parent.mkdir(parents=True, exist_ok=True)
