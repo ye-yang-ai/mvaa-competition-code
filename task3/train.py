@@ -89,6 +89,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--score-asd-weight", type=float, default=0.2)
     parser.add_argument("--score-hd-ref", type=float, default=20.0)
     parser.add_argument("--score-asd-ref", type=float, default=3.0)
+    parser.add_argument(
+        "--threshold-selection-metric",
+        type=str,
+        default="fg_dice",
+        choices=["fg_dice", "all_dice"],
+        help="Metric used to select the validation threshold.",
+    )
+    parser.add_argument(
+        "--score-use-all-frame-dice",
+        action="store_true",
+        default=False,
+        help="Use all-frame Dice instead of foreground-only Dice in checkpoint score.",
+    )
+    parser.add_argument("--no-score-use-all-frame-dice", action="store_false", dest="score_use_all_frame_dice")
 
     parser.add_argument("--semi-warmup-epochs", type=int, default=20)
     parser.add_argument("--unsup-weight", type=float, default=0.6)
@@ -202,6 +216,7 @@ def evaluate(
     use_amp: bool,
     threshold_candidates: Sequence[float],
     use_tta: bool,
+    threshold_selection_metric: str = "fg_dice",
     fixed_threshold: float | None = None,
 ) -> Dict[str, float]:
     model.eval()
@@ -231,7 +246,11 @@ def evaluate(
         best_dice = -1.0
         for thr in threshold_candidates:
             preds = (all_probs > float(thr)).float()
-            d = dice_from_preds(preds, all_labels, ignore_empty_gt=True)
+            d = dice_from_preds(
+                preds,
+                all_labels,
+                ignore_empty_gt=str(threshold_selection_metric) == "fg_dice",
+            )
             if d > best_dice:
                 best_dice = d
                 best_thr = float(thr)
@@ -241,9 +260,18 @@ def evaluate(
     final_preds = (all_probs > best_thr).float()
     pred_pos_ratio = float(final_preds.mean().item())
     gt_pos_ratio = float(all_labels.mean().item())
-
     pred_non_empty = final_preds.flatten(1).sum(dim=1) > 0
     gt_non_empty = all_labels.flatten(1).sum(dim=1) > 0
+    empty_gt = ~gt_non_empty
+    fg_gt = gt_non_empty
+    empty_gt_count = int(empty_gt.sum().item())
+    fg_gt_count = int(fg_gt.sum().item())
+    empty_fp_count = int((empty_gt & pred_non_empty).sum().item())
+    fg_miss_count = int((fg_gt & ~pred_non_empty).sum().item())
+    presence_acc = float((pred_non_empty == gt_non_empty).float().mean().item())
+    empty_fp_rate = float(empty_fp_count / max(1, empty_gt_count))
+    fg_miss_rate = float(fg_miss_count / max(1, fg_gt_count))
+
     valid_dist_mask = pred_non_empty & gt_non_empty
     valid_dist_cases = int(valid_dist_mask.sum().item())
 
@@ -278,11 +306,21 @@ def evaluate(
     return {
         "val_loss": float(loss_sum / max(1, steps)),
         "val_dice": float(dice_from_preds(final_preds, all_labels, ignore_empty_gt=True)),
+        "val_dice_fg": float(dice_from_preds(final_preds, all_labels, ignore_empty_gt=True)),
+        "val_dice_all": float(dice_from_preds(final_preds, all_labels, ignore_empty_gt=False)),
         "val_hd": hd,
         "val_asd": asd,
         "val_threshold": best_thr,
+        "val_threshold_selection_metric": str(threshold_selection_metric),
         "val_pred_pos_ratio": pred_pos_ratio,
         "val_gt_pos_ratio": gt_pos_ratio,
+        "val_presence_acc": presence_acc,
+        "val_empty_gt_count": empty_gt_count,
+        "val_empty_fp_count": empty_fp_count,
+        "val_empty_fp_rate": empty_fp_rate,
+        "val_fg_gt_count": fg_gt_count,
+        "val_fg_miss_count": fg_miss_count,
+        "val_fg_miss_rate": fg_miss_rate,
         "val_valid_dist_cases": valid_dist_cases,
     }
 
@@ -566,11 +604,19 @@ def main() -> int:
                 "train_dice",
                 "val_loss",
                 "val_dice",
+                "val_dice_all",
                 "val_hd",
                 "val_asd",
                 "val_threshold",
                 "val_pred_pos_ratio",
                 "val_gt_pos_ratio",
+                "val_presence_acc",
+                "val_empty_fp_rate",
+                "val_empty_fp_count",
+                "val_empty_gt_count",
+                "val_fg_miss_rate",
+                "val_fg_miss_count",
+                "val_fg_gt_count",
                 "val_valid_dist_cases",
                 "score",
                 "best_score",
@@ -710,6 +756,7 @@ def main() -> int:
             use_amp=use_amp,
             threshold_candidates=args.threshold_candidates,
             use_tta=bool(args.val_tta),
+            threshold_selection_metric=str(args.threshold_selection_metric),
             fixed_threshold=None,
         )
 
@@ -723,6 +770,7 @@ def main() -> int:
                 use_amp=use_amp,
                 threshold_candidates=args.threshold_candidates,
                 use_tta=bool(args.val_tta),
+                threshold_selection_metric=str(args.threshold_selection_metric),
                 fixed_threshold=float(val_metrics["val_threshold"]),
             )
             ext_val_dice = float(ext["val_dice"])
@@ -731,7 +779,7 @@ def main() -> int:
         epoch_sec = time.time() - epoch_start
 
         quality = metric_quality_weighted(
-            dsc=val_metrics["val_dice"],
+            dsc=val_metrics["val_dice_all"] if bool(args.score_use_all_frame_dice) else val_metrics["val_dice"],
             hd=val_metrics["val_hd"],
             asd=val_metrics["val_asd"],
             refs=refs,
@@ -807,11 +855,19 @@ def main() -> int:
                     f"{train_dice_sum / max(1, steps):.6f}",
                     f"{val_metrics['val_loss']:.6f}",
                     f"{val_metrics['val_dice']:.6f}",
+                    f"{val_metrics['val_dice_all']:.6f}",
                     f"{val_metrics['val_hd']:.6f}",
                     f"{val_metrics['val_asd']:.6f}",
                     f"{val_metrics['val_threshold']:.4f}",
                     f"{val_metrics['val_pred_pos_ratio']:.6f}",
                     f"{val_metrics['val_gt_pos_ratio']:.6f}",
+                    f"{val_metrics['val_presence_acc']:.6f}",
+                    f"{val_metrics['val_empty_fp_rate']:.6f}",
+                    f"{int(val_metrics['val_empty_fp_count'])}",
+                    f"{int(val_metrics['val_empty_gt_count'])}",
+                    f"{val_metrics['val_fg_miss_rate']:.6f}",
+                    f"{int(val_metrics['val_fg_miss_count'])}",
+                    f"{int(val_metrics['val_fg_gt_count'])}",
                     f"{int(val_metrics['val_valid_dist_cases'])}",
                     f"{score:.6f}",
                     f"{best_score:.6f}",
@@ -821,7 +877,7 @@ def main() -> int:
             )
 
         logger.info(
-            "Epoch %d/%d | lambda_u=%.3f | train(sup/unsup/total)=%.4f/%.4f/%.4f train_dice=%.4f | val_loss=%.4f val_dice=%.4f val_hd=%s val_asd=%s thr=%.2f pred_pos=%.4f gt_pos=%.4f dist_n=%d | score=%.4f best=%.4f(epoch=%d) | ext_dice=%s | lr=%.6g | %.1fs",
+            "Epoch %d/%d | lambda_u=%.3f | train(sup/unsup/total)=%.4f/%.4f/%.4f train_dice=%.4f | val_loss=%.4f val_dice=%.4f all_dice=%.4f val_hd=%s val_asd=%s thr=%.2f pred_pos=%.4f gt_pos=%.4f empty_fp=%d/%d(%.3f) fg_miss=%d/%d(%.3f) dist_n=%d | score=%.4f best=%.4f(epoch=%d) | ext_dice=%s | lr=%.6g | %.1fs",
             epoch,
             int(args.epochs),
             lambda_u,
@@ -831,11 +887,18 @@ def main() -> int:
             train_dice_sum / max(1, steps),
             val_metrics["val_loss"],
             val_metrics["val_dice"],
+            val_metrics["val_dice_all"],
             ("nan" if math.isnan(val_metrics["val_hd"]) else f"{val_metrics['val_hd']:.4f}"),
             ("nan" if math.isnan(val_metrics["val_asd"]) else f"{val_metrics['val_asd']:.4f}"),
             val_metrics["val_threshold"],
             val_metrics["val_pred_pos_ratio"],
             val_metrics["val_gt_pos_ratio"],
+            int(val_metrics["val_empty_fp_count"]),
+            int(val_metrics["val_empty_gt_count"]),
+            val_metrics["val_empty_fp_rate"],
+            int(val_metrics["val_fg_miss_count"]),
+            int(val_metrics["val_fg_gt_count"]),
+            val_metrics["val_fg_miss_rate"],
             int(val_metrics["val_valid_dist_cases"]),
             score,
             best_score,
@@ -860,6 +923,8 @@ def main() -> int:
             "best_val_hd": best_val_hd,
             "best_val_asd": best_val_asd,
             "best_threshold": best_thr,
+            "threshold_selection_metric": str(args.threshold_selection_metric),
+            "score_use_all_frame_dice": bool(args.score_use_all_frame_dice),
             "train_samples": len(train_samples),
             "val_internal_all_samples": len(val_samples_all),
             "val_internal_samples": len(val_samples),

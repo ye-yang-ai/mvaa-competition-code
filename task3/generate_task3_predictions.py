@@ -48,6 +48,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--threshold", type=float, default=None, help="Override checkpoint validation threshold")
     parser.add_argument("--postprocess", action="store_true", default=False)
     parser.add_argument("--post-min-area", type=int, default=0)
+    parser.add_argument(
+        "--post-min-total-area",
+        type=int,
+        default=0,
+        help="Clear the whole frame if final foreground area is below this value; 0 disables.",
+    )
     parser.add_argument("--post-keep-top", type=int, default=0, help="0 means keep all components after area filtering")
     parser.add_argument("--post-fill-holes", action="store_true", default=False)
     parser.add_argument("--post-close-iters", type=int, default=0)
@@ -222,6 +228,7 @@ def main() -> int:
     print(
         "Postprocess: "
         f"enabled={args.postprocess}, min_area={args.post_min_area}, "
+        f"min_total_area={args.post_min_total_area}, "
         f"keep_top={args.post_keep_top}, fill_holes={args.post_fill_holes}, "
         f"close_iters={args.post_close_iters}"
     )
@@ -254,6 +261,8 @@ def main() -> int:
                 fill_holes=bool(args.post_fill_holes),
                 close_iters=int(args.post_close_iters),
             )
+        if int(args.post_min_total_area) > 0 and int(pred_mask.sum()) < int(args.post_min_total_area):
+            pred_mask = np.zeros_like(pred_mask, dtype=np.uint8)
 
         save_path = pred_dir / rel.parent / f"{image_path.stem}_label_bin.png"
         save_path.parent.mkdir(parents=True, exist_ok=True)

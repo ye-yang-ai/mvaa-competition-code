@@ -37,6 +37,9 @@ def parse_args() -> argparse.Namespace:
         default=[0.10, 0.15, 0.20, 0.25, 0.30],
     )
     parser.add_argument("--val-video-count", type=int, default=1)
+    parser.add_argument("--val-only-fg", action="store_true", default=False)
+    parser.add_argument("--no-val-only-fg", action="store_false", dest="val_only_fg")
+    parser.add_argument("--score-dice-mode", choices=["fg", "all"], default="all")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--target-label", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=1)
@@ -183,9 +186,10 @@ def main() -> int:
         val_video_count=int(args.val_video_count),
         seed=int(args.seed),
     )
-    val_samples = [
-        s for s in val_samples if sample_has_foreground(s, target_label=int(args.target_label))
-    ]
+    if bool(args.val_only_fg):
+        val_samples = [
+            s for s in val_samples if sample_has_foreground(s, target_label=int(args.target_label))
+        ]
     ds = LabeledDataset(
         samples=val_samples,
         image_size=tuple(int(v) for v in train_args_a.get("image_size", [448, 800])),
@@ -222,10 +226,23 @@ def main() -> int:
         probs = wa * pa + wb * pb
         for thr in args.thresholds:
             preds = (probs > float(thr)).float()
-            dsc = dice_from_preds(preds, labels, ignore_empty_gt=True)
+            dsc_fg = dice_from_preds(preds, labels, ignore_empty_gt=True)
+            dsc_all = dice_from_preds(preds, labels, ignore_empty_gt=False)
+            dsc_for_score = dsc_all if str(args.score_dice_mode) == "all" else dsc_fg
             hd, asd, valid_cases = distance_metrics(preds, labels)
+            pred_non_empty = preds.flatten(1).sum(dim=1) > 0
+            gt_non_empty = labels.flatten(1).sum(dim=1) > 0
+            empty_gt = ~gt_non_empty
+            fg_gt = gt_non_empty
+            empty_gt_count = int(empty_gt.sum().item())
+            fg_gt_count = int(fg_gt.sum().item())
+            empty_fp_count = int((empty_gt & pred_non_empty).sum().item())
+            fg_miss_count = int((fg_gt & ~pred_non_empty).sum().item())
+            empty_fp_rate = float(empty_fp_count / max(1, empty_gt_count))
+            fg_miss_rate = float(fg_miss_count / max(1, fg_gt_count))
+            presence_acc = float((pred_non_empty == gt_non_empty).float().mean().item())
             score = metric_quality_weighted(
-                dsc=dsc,
+                dsc=dsc_for_score,
                 hd=hd,
                 asd=asd,
                 refs=refs,
@@ -238,11 +255,19 @@ def main() -> int:
                     "weight_a": wa,
                     "weight_b": wb,
                     "threshold": float(thr),
-                    "dsc": float(dsc),
+                    "dsc_fg": float(dsc_fg),
+                    "dsc_all": float(dsc_all),
                     "hd": float(hd),
                     "asd": float(asd),
                     "score": float(score),
                     "valid_dist_cases": valid_cases,
+                    "empty_fp_rate": empty_fp_rate,
+                    "empty_fp_count": empty_fp_count,
+                    "empty_gt_count": empty_gt_count,
+                    "fg_miss_rate": fg_miss_rate,
+                    "fg_miss_count": fg_miss_count,
+                    "fg_gt_count": fg_gt_count,
+                    "presence_acc": presence_acc,
                     "pred_pos_ratio": float(preds.mean().item()),
                     "gt_pos_ratio": float(labels.mean().item()),
                 }
@@ -255,6 +280,8 @@ def main() -> int:
         "val_videos": val_videos,
         "train_videos": train_videos,
         "num_val_samples": len(val_samples),
+        "val_only_fg": bool(args.val_only_fg),
+        "score_dice_mode": str(args.score_dice_mode),
         "device": str(device),
         "use_amp": use_amp,
         "use_tta": bool(args.tta),

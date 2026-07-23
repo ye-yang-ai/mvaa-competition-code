@@ -1,4 +1,4 @@
-# MVAA 2026 Submission Scores v1-v19
+# MVAA 2026 Submission Scores v1-v23
 
 本文档记录已知线上评测结果。v1-v3 如果没有明确保存到对话中的完整结果，暂不补猜；从有明确结果的版本开始记录。
 
@@ -22,6 +22,10 @@
 | v17 | Task1 nnU-Net 5fold best checkpoint + Task2 v14 + Task3 v15 | Task1 DSC 最高；曾为主提交，现作为 Task1 稳定基线 |
 | v18 | v17 Task1 + 轻量小连通域删除，Task2 v14 + Task3 v15 | 后处理收益不明显；相对 v17，HD 小幅改善但 DSC/ASD 变差，不推荐 |
 | v19 | Task1 v17 + Task2 nnU-Net 5fold best checkpoint ensemble + Task3 v15 | Task2 DSC 和 ASD 刷新历史最佳；HD 略差于 v14 |
+| v20 | Task1 v17 + Task2 v19 + Task3 v15 `threshold=0.28, min_area=20` | Task3 轻量小连通域后处理试验；线上三项均略差于 v15/v19，不推荐 |
+| v21 | Task1 v17 + Task2 v19 + Task3 v15 `threshold=0.285, min_total_area=1500` | Task3 总面积门控试验；线上结果与 v15/v19 完全一致，说明该门控未命中线上有效误检 |
+| v22 | Task1 v17 + Task2 v19 + Task3 supervised-only UNet++ EfficientNet-B4 `threshold=0.25` | Task3 DSC 刷新当前最高，但 HD/ASD 明显退化；适合作为高召回模型来源，不推荐直接替代 v15 |
+| v23 | Task1 v17 + Task2 v19 + Task3 v15/v22 probability ensemble `0.5/0.5, threshold=0.4` | Task3 DSC 再次刷新且 ASD 基本回到 v15 水平；HD 明显优于 v22/v12 但仍差于 v15，当前按 DSC 优先的主力候选 |
 
 ## 总表
 
@@ -77,6 +81,18 @@
 | v19 | task1_ct | 0.857539 | 4.631175 | 0.279265 | 与 v17 相同，num_cases 30，missing_cases 0 |
 | v19 | task2_tee | 0.846325 | 11.196889 | 0.640635 | nnU-Net Dataset102 3d_fullres 5fold `checkpoint_best.pth` ensemble；DSC/ASD 当前 Task2 最佳，HD 略差于 v14，num_cases 20，missing_cases 0 |
 | v19 | task3_vid | 0.770197 | 95.627329 | 14.537786 | 与 v15/v17 相同，num_cases 48，missing_cases 0 |
+| v20 | task1_ct | 0.857539 | 4.631175 | 0.279265 | 与 v19 相同，num_cases 30，missing_cases 0 |
+| v20 | task2_tee | 0.846325 | 11.196889 | 0.640635 | 与 v19 相同，num_cases 20，missing_cases 0 |
+| v20 | task3_vid | 0.770188 | 95.846126 | 14.617547 | v15 checkpoint + TTA/AMP，`threshold=0.28, min_area=20`；相对 v15/v19 轻微变差，num_cases 48，missing_cases 0 |
+| v21 | task1_ct | 0.857539 | 4.631175 | 0.279265 | 与 v19 相同，num_cases 30，missing_cases 0 |
+| v21 | task2_tee | 0.846325 | 11.196889 | 0.640635 | 与 v19 相同，num_cases 20，missing_cases 0 |
+| v21 | task3_vid | 0.770197 | 95.627329 | 14.537786 | v15 checkpoint + TTA/AMP，`threshold=0.285, min_total_area=1500`；线上与 v15/v19 完全一致，num_cases 48，missing_cases 0 |
+| v22 | task1_ct | 0.857539 | 4.631175 | 0.279265 | 与 v19 相同，num_cases 30，missing_cases 0 |
+| v22 | task2_tee | 0.846325 | 11.196889 | 0.640635 | 与 v19 相同，num_cases 20，missing_cases 0 |
+| v22 | task3_vid | 0.790266 | 216.022344 | 22.657026 | supervised-only UNet++ EfficientNet-B4，`512x896`，all-frame validation，TTA/AMP，`threshold=0.25`；Task3 DSC 当前最高，但 HD/ASD 明显差于 v15/v19/v12，num_cases 48，missing_cases 0 |
+| v23 | task1_ct | 0.857539 | 4.631175 | 0.279265 | 与 v19 相同，num_cases 30，missing_cases 0 |
+| v23 | task2_tee | 0.846325 | 11.196889 | 0.640635 | 与 v19 相同，num_cases 20，missing_cases 0 |
+| v23 | task3_vid | 0.798404 | 122.469457 | 14.554252 | v15/v22 probability ensemble `0.5/0.5, threshold=0.4`；Task3 DSC 当前最高，ASD 接近 v15，HD 显著优于 v22/v12 但仍差于 v15，num_cases 48，missing_cases 0 |
 
 ## Task1 对比
 
@@ -110,16 +126,28 @@
 | v11 | v10 二值后处理 `min_area=400, keep_top=2, close_iters=1` | 0.754698 | 99.258927 | 17.491449 | HD 当前最好，但后处理伤了 DSC 和 ASD |
 | v12 | v10 ResNet34 + EfficientNet-B4 概率 ensemble `0.5/0.5, thr=0.15` | 0.790226 | 138.577390 | 16.059344 | DSC 当前最高，但远端误差变多，HD 明显差于 v10/v11 |
 | v15 | v10 checkpoint + TTA + `threshold=0.285` | 0.770197 | 95.627329 | 14.537786 | 相对 v10/v14 三项全部改善；当前 Task3 最均衡 |
+| v20 | v15 checkpoint + TTA/AMP + `threshold=0.28, min_area=20` | 0.770188 | 95.846126 | 14.617547 | 小连通域过滤没有线上收益，DSC/HD/ASD 均略差 |
+| v21 | v15 checkpoint + TTA/AMP + `threshold=0.285, min_total_area=1500` | 0.770197 | 95.627329 | 14.537786 | 总面积门控线上未改变结果，等同 v15/v19 |
+| v22 | supervised-only UNet++ EfficientNet-B4 `512x896` + TTA/AMP + `threshold=0.25` | 0.790266 | 216.022344 | 22.657026 | DSC 当前最高，但远端错误显著增加；说明新模型召回强、边界/假阳性控制不足 |
+| v23 | v15/v22 probability ensemble `0.5/0.5, threshold=0.4` | 0.798404 | 122.469457 | 14.554252 | DSC 当前最高；ensemble 成功压回 v22 的 HD/ASD，大幅优于 v12，但 HD 仍不如 v15 |
 
 ## 当前结论
 
-当前按 DSC 优先策略选择 **v19** 作为主提交：Task1 复用 v17，Task2 使用 nnU-Net 5fold ensemble 并刷新 DSC/ASD，Task3 复用 v15。如果更重视 Task1 的 HD/ASD，则 v16 是距离指标备选；如果只看 Task2 HD，则 v14 仍略好。
+当前按 DSC 优先策略选择 **v23** 作为主提交候选：Task1 复用 v17，Task2 复用 v19，Task3 使用 v15/v22 probability ensemble。v23 把 Task3 DSC 推到当前最高，同时把 v22 失控的 ASD 基本压回 v15 水平；主要代价是 HD 仍高于 v15/v19。如果非常重视 Task3 HD，则 v15/v19 仍是距离指标备选。
 
 ```text
 task1_ct: DSC 0.8575385873310171, HD 4.6311747736863405, ASD 0.2792648483145077
 task2_tee: DSC 0.8463245904808815, HD 11.196888629485855, ASD 0.6406354094949988
-task3_vid: DSC 0.7701966979705538, HD 95.62732850814587, ASD 14.537786225800227
+task3_vid: DSC 0.7984039938855672, HD 122.46945721998627, ASD 14.554251785067644
 ```
+
+v20 相比 v19 只改变 Task3：`threshold=0.28` 并删除小于 20 像素的小连通域。Task3 DSC 降低 `-0.000009`，HD 增加 `+0.218798`，ASD 增加 `+0.079761`，线上表现略差。
+
+v21 相比 v19 只改变 Task3：保留 `threshold=0.285`，增加 `min_total_area=1500` 总面积门控。Task3 线上结果与 v19 完全一致；本地逐 PNG 比较也确认 v21 Task3 与 v19 完全相同，48 张预测中最小前景面积为 `15982`，因此该门控没有触发。
+
+v22 相比 v19 只改变 Task3：使用 supervised-only UNet++ EfficientNet-B4 `512x896` checkpoint。Task3 DSC 提高 `+0.020069`，并比 v12 也高 `+0.000040`，刷新当前最高 DSC；但 HD 增加 `+120.395016`，ASD 增加 `+8.119239`。这说明 v22 的召回/覆盖更强，但预测边界或远端假阳性明显失控，不能作为均衡主提交。
+
+v23 相比 v22 只改变 Task3 推理策略：把 v22 与稳定的 v15 做 `0.5/0.5` 概率 ensemble，并使用 `threshold=0.4`。Task3 DSC 继续提高 `+0.008138`，HD 改善 `-93.552887`，ASD 改善 `-8.102774`。相对 v15/v19，v23 的 Task3 DSC 提高 `+0.028207`，ASD 只增加 `+0.016466`，但 HD 增加 `+26.842129`。这说明 ensemble 方向成立：v15 成功压住了 v22 的大部分距离错误，同时保留并增强了 v22 的召回优势。
 
 v16 相比 v15 只改变 Task1，Task2/Task3 结果保持一致；Task1 的 DSC、HD、ASD 三项全部大幅改善。
 
@@ -279,6 +307,114 @@ task3_vid: DSC 0.7701966979705538, HD 95.62732850814587, ASD 14.537786225800227
 
 判断：v19 是 Task2 的明确 DSC 跃升版本。相对 v14/v17/v18，Task2 DSC 提高约 `+0.032049`，ASD 降低约 `-0.051741`，但 HD 增加约 `+0.292778`。因此按 DSC 或 DSC+ASD 优先，v19 是当前 Task2 最优；如果单独追求 Task2 HD，v14 仍略好。
 
+## v23 提交记录
+
+- 提交目录：`outputs/submissions/submit_v23_task3_v15_v22_ens_w50_thr04_task1_v17_task2_v19/submission`
+- 提交压缩包：`outputs/submissions/submit_v23_task3_v15_v22_ens_w50_thr04_task1_v17_task2_v19/submission.zip`
+- 记录文件：`outputs/submissions/submit_v23_task3_v15_v22_ens_w50_thr04_task1_v17_task2_v19/checkpoint_record.md`
+- 生成时间：2026-07-23
+- 文件检查：submission 目录共 `101` 个文件；zip 根目录为 `t1_ct/`、`t2_tee/`、`t3_vid/`
+- 线上状态：已测评通过，三个 task 均 `ok`，missing_cases 均为 `0`
+
+组成：
+
+| Task | 来源 | 说明 |
+|---|---|---|
+| task1_ct | v17 / v19 | Task1 nnU-Net 5fold `checkpoint_best.pth` ensemble，无后处理 |
+| task2_tee | v19 | Task2 nnU-Net 5fold `checkpoint_best.pth` ensemble，无后处理 |
+| task3_vid | v15/v22 probability ensemble | v15 weight `0.5`，v22 weight `0.5`，threshold `0.4`，TTA/AMP，无后处理 |
+
+线上结果：
+
+```text
+task1_ct: DSC 0.8575385873310171, HD 4.6311747736863405, ASD 0.2792648483145077
+task2_tee: DSC 0.8463245904808815, HD 11.196888629485855, ASD 0.6406354094949988
+task3_vid: DSC 0.7984039938855672, HD 122.46945721998627, ASD 14.554251785067644
+```
+
+判断：v23 是当前 Task3 DSC 最高版本，且显著修复了 v22 的距离指标退化。相对 v22，Task3 DSC 继续提高，HD/ASD 大幅下降；相对 v15/v19，DSC 大幅提高、ASD 基本持平，但 HD 仍高约 `+26.842129`。因此 v23 是当前按 DSC 优先的主力候选；如果平台或论文更重视 HD，v15/v19 仍应作为距离指标备选。
+
+## v22 提交记录
+
+- 提交目录：`outputs/submissions/submit_v22_task3_effb4_sup_allframe_s42_task1_v17_task2_v19/submission`
+- 提交压缩包：`outputs/submissions/submit_v22_task3_effb4_sup_allframe_s42_task1_v17_task2_v19/submission.zip`
+- 记录文件：`outputs/submissions/submit_v22_task3_effb4_sup_allframe_s42_task1_v17_task2_v19/checkpoint_record.md`
+- 生成时间：2026-07-23
+- 文件检查：submission 目录共 `101` 个文件；zip 根目录为 `t1_ct/`、`t2_tee/`、`t3_vid/`
+- 线上状态：已测评通过，三个 task 均 `ok`，missing_cases 均为 `0`
+
+组成：
+
+| Task | 来源 | 说明 |
+|---|---|---|
+| task1_ct | v17 / v19 | Task1 nnU-Net 5fold `checkpoint_best.pth` ensemble，无后处理 |
+| task2_tee | v19 | Task2 nnU-Net 5fold `checkpoint_best.pth` ensemble，无后处理 |
+| task3_vid | supervised-only EfficientNet-B4 | UNet++ EfficientNet-B4 ImageNet，`512x896`，all-frame validation，TTA/AMP，`threshold=0.25`，无后处理 |
+
+线上结果：
+
+```text
+task1_ct: DSC 0.8575385873310171, HD 4.6311747736863405, ASD 0.2792648483145077
+task2_tee: DSC 0.8463245904808815, HD 11.196888629485855, ASD 0.6406354094949988
+task3_vid: DSC 0.7902659360112319, HD 216.0223443104334, ASD 22.657025617217844
+```
+
+判断：v22 是 Task3 的高召回/高 DSC 版本。它相对 v15/v19 的 Task3 DSC 提高约 `+0.020069`，也以极小幅度超过 v12 的 `0.790226`，但 HD/ASD 明显退化，甚至 HD 接近旧 v9/v10 之前的高错误区间。因此 v22 不应直接替代 v15 作为均衡版本，但值得保留为后续概率 ensemble、蒸馏、或更强距离约束训练的候选分支。
+
+## v21 提交记录
+
+- 提交目录：`outputs/submissions/submit_v21_task3_v15_thr0285_area1500_task1_v17_task2_v19/submission`
+- 提交压缩包：`outputs/submissions/submit_v21_task3_v15_thr0285_area1500_task1_v17_task2_v19/submission.zip`
+- 记录文件：`outputs/submissions/submit_v21_task3_v15_thr0285_area1500_task1_v17_task2_v19/checkpoint_record.md`
+- 生成时间：2026-07-23
+- 文件检查：submission 目录共 `101` 个文件；zip 根目录为 `t1_ct/`、`t2_tee/`、`t3_vid/`
+- 线上状态：已测评通过，三个 task 均 `ok`，missing_cases 均为 `0`
+
+组成：
+
+| Task | 来源 | 说明 |
+|---|---|---|
+| task1_ct | v17 / v19 | Task1 nnU-Net 5fold `checkpoint_best.pth` ensemble，无后处理 |
+| task2_tee | v19 | Task2 nnU-Net 5fold `checkpoint_best.pth` ensemble，无后处理 |
+| task3_vid | v15 + 总面积门控 | v15 checkpoint + TTA/AMP + `threshold=0.285`；预测总前景面积 `<1500` pixels 时整帧清空 |
+
+线上结果：
+
+```text
+task1_ct: DSC 0.8575385873310171, HD 4.6311747736863405, ASD 0.2792648483145077
+task2_tee: DSC 0.8463245904808815, HD 11.196888629485855, ASD 0.6406354094949988
+task3_vid: DSC 0.7701966979705538, HD 95.62732850814587, ASD 14.537786225800227
+```
+
+判断：v21 与 v19/v15 线上结果完全一致。本地逐 PNG 比较确认 v21 Task3 与 v19 完全相同，48 张预测中最小前景面积为 `15982`，所以 `min_total_area=1500` 根本没有触发。该方向不建议继续加大阈值盲试，因为需要把阈值提高到接近真实前景面积区间才会改变结果，风险会明显增大。
+
+## v20 提交记录
+
+- 提交目录：`outputs/submissions/submit_v20_task3_v15_thr028_min20_task1_v17_task2_v19/submission`
+- 提交压缩包：`outputs/submissions/submit_v20_task3_v15_thr028_min20_task1_v17_task2_v19/submission.zip`
+- 记录文件：`outputs/submissions/submit_v20_task3_v15_thr028_min20_task1_v17_task2_v19/checkpoint_record.md`
+- 生成时间：2026-07-23
+- 文件检查：submission 目录共 `101` 个文件；zip 根目录为 `t1_ct/`、`t2_tee/`、`t3_vid/`
+- 线上状态：已测评通过，三个 task 均 `ok`，missing_cases 均为 `0`
+
+组成：
+
+| Task | 来源 | 说明 |
+|---|---|---|
+| task1_ct | v17 / v19 | Task1 nnU-Net 5fold `checkpoint_best.pth` ensemble，无后处理 |
+| task2_tee | v19 | Task2 nnU-Net 5fold `checkpoint_best.pth` ensemble，无后处理 |
+| task3_vid | v15 + 小连通域过滤 | v15 checkpoint + TTA/AMP + `threshold=0.28` + `min_area=20` |
+
+线上结果：
+
+```text
+task1_ct: DSC 0.8575385873310171, HD 4.6311747736863405, ASD 0.2792648483145077
+task2_tee: DSC 0.8463245904808815, HD 11.196888629485855, ASD 0.6406354094949988
+task3_vid: DSC 0.7701881121613079, HD 95.84612622263508, ASD 14.61754742221453
+```
+
+判断：v20 相对 v19/v15 略差。Task3 DSC 下降约 `-0.000009`，HD 增加约 `+0.218798`，ASD 增加约 `+0.079761`。这说明本地轻量 threshold/postprocess 搜索的极小优势没有线上泛化，不能作为下一步主方向。
+
 ## v17 提交记录
 
 - 提交目录：`outputs/submissions/submit_v17_task1_nnunet5fold_bestckpt_task2_v14_task3_v15/submission`
@@ -331,8 +467,8 @@ task3_vid: DSC 0.7701966979705538, HD 95.62732850814587, ASD 14.537786225800227
 
 后续优先级：
 
-1. 保留 v19 作为当前按 DSC 优先策略的主力提交；v17 是 Task1/Task3 稳定基线；v16 作为 Task1 距离指标备选；不建议使用 v18。
-2. 第一优先级继续优化 Task3：v15/v16 证明阈值搜索有效；下一步做多视频 split 验证、空帧误检控制和时序一致性后处理。
+1. 保留 v23 作为当前按 DSC 优先策略的主力候选；v19/v15 是 Task3 HD 指标备选；v16 作为 Task1 距离指标备选；不建议使用 v18/v20/v21。
+2. 第一优先级继续优化 Task3：v23 证明 v15/v22 probability ensemble 有效；下一步做 ensemble 权重/阈值细搜、多视频 split 验证、空帧误检控制和时序一致性后处理。
 3. 第二优先级优化 Task2：v19 的 nnU-Net 5fold 已显著刷新 DSC，可继续比较 `checkpoint_final.pth`、v14/v19 融合、以及轻量后处理对 HD 的影响。
 4. 第三优先级优化 Task1：小连通域删除已经验证收益不明显；下一步不要继续单纯加大 `min_size`，应优先尝试概率阈值、v16/v17 概率融合、或 fold 权重平均。
 5. v5-medium 和 v8 的线上结果与相邻版本完全一致，且本地 zip/Task2 文件不同，记录时应标注为疑似提交或平台缓存异常。
