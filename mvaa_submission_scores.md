@@ -1,4 +1,4 @@
-# MVAA 2026 Submission Scores v1-v23
+# MVAA 2026 Submission Scores v1-v26
 
 本文档记录已知线上评测结果。v1-v3 如果没有明确保存到对话中的完整结果，暂不补猜；从有明确结果的版本开始记录。
 
@@ -26,6 +26,9 @@
 | v21 | Task1 v17 + Task2 v19 + Task3 v15 `threshold=0.285, min_total_area=1500` | Task3 总面积门控试验；线上结果与 v15/v19 完全一致，说明该门控未命中线上有效误检 |
 | v22 | Task1 v17 + Task2 v19 + Task3 supervised-only UNet++ EfficientNet-B4 `threshold=0.25` | Task3 DSC 刷新当前最高，但 HD/ASD 明显退化；适合作为高召回模型来源，不推荐直接替代 v15 |
 | v23 | Task1 v17 + Task2 v19 + Task3 v15/v22 probability ensemble `0.5/0.5, threshold=0.4` | Task3 DSC 再次刷新且 ASD 基本回到 v15 水平；HD 明显优于 v22/v12 但仍差于 v15，当前按 DSC 优先的主力候选 |
+| v24 | Task1 v17 + Task2 v19 + Task3 v15/v22 probability ensemble `0.55/0.45, threshold=0.42` | v23 的轻微保守版本；DSC 小降，HD/ASD 小幅改善，但没有带来实质性 HD 突破 |
+| v25 | Task1 Dataset111 pseudo-top100 self-training 5fold + Task2 v19 + Task3 v15 | Task1 自训练增量试验；Task1 DSC 和 ASD 刷新当前最好，HD 略差于 v17/v19，证明 pseudo-top100 有正增量 |
+| v26 | Task1 v25 + Task2 v19 + Task3 v23 | 当前组件最优合并包；线上待测，预期为 v25 Task1 + v19 Task2 + v23 Task3 |
 
 ## 总表
 
@@ -93,6 +96,15 @@
 | v23 | task1_ct | 0.857539 | 4.631175 | 0.279265 | 与 v19 相同，num_cases 30，missing_cases 0 |
 | v23 | task2_tee | 0.846325 | 11.196889 | 0.640635 | 与 v19 相同，num_cases 20，missing_cases 0 |
 | v23 | task3_vid | 0.798404 | 122.469457 | 14.554252 | v15/v22 probability ensemble `0.5/0.5, threshold=0.4`；Task3 DSC 当前最高，ASD 接近 v15，HD 显著优于 v22/v12 但仍差于 v15，num_cases 48，missing_cases 0 |
+| v24 | task1_ct | 0.857539 | 4.631175 | 0.279265 | 与 v19/v23 相同，num_cases 30，missing_cases 0 |
+| v24 | task2_tee | 0.846325 | 11.196889 | 0.640635 | 与 v19/v23 相同，num_cases 20，missing_cases 0 |
+| v24 | task3_vid | 0.797286 | 118.965305 | 14.092329 | v15/v22 probability ensemble `0.55/0.45, threshold=0.42`；相对 v23，DSC 小降、HD/ASD 小幅改善，num_cases 48，missing_cases 0 |
+| v25 | task1_ct | 0.857813 | 4.671629 | 0.274123 | Dataset111 pseudo-top100 self-training nnU-Net 5fold `checkpoint_best.pth` ensemble；DSC/ASD 当前 Task1 最好，HD 略差于 v17/v19，num_cases 30，missing_cases 0 |
+| v25 | task2_tee | 0.846325 | 11.196889 | 0.640635 | 沿用 v19，结果完全一致，num_cases 20，missing_cases 0 |
+| v25 | task3_vid | 0.770197 | 95.627329 | 14.537786 | 沿用 v15/v19，结果完全一致，num_cases 48，missing_cases 0 |
+| v26 | task1_ct | - | - | - | 沿用 v25；线上待测，预期 DSC 0.857813 / HD 4.671629 / ASD 0.274123 |
+| v26 | task2_tee | - | - | - | 沿用 v19；线上待测，预期 DSC 0.846325 / HD 11.196889 / ASD 0.640635 |
+| v26 | task3_vid | - | - | - | 沿用 v23；线上待测，预期 DSC 0.798404 / HD 122.469457 / ASD 14.554252 |
 
 ## Task1 对比
 
@@ -100,8 +112,9 @@
 |---|---|---:|---:|---:|---|
 | v10-v15 | SegResNet base bestcfg | 0.810562 | 6.902283 | 0.396594 | 旧线上最佳 Task1 |
 | v16 | nnU-Net 5fold `checkpoint_final.pth` ensemble | 0.857340 | 4.583182 | 0.278065 | 明确大幅刷新 Task1，HD/ASD 当前最好 |
-| v17 | nnU-Net 5fold `checkpoint_best.pth` ensemble | 0.857539 | 4.631175 | 0.279265 | DSC 当前最高，但 HD/ASD 略逊于 v16 |
+| v17 | nnU-Net 5fold `checkpoint_best.pth` ensemble | 0.857539 | 4.631175 | 0.279265 | 旧 DSC 最高，但 HD/ASD 略逊于 v16 |
 | v18 | v17 + min_size=100 postprocess | 0.857534 | 4.603581 | 0.280489 | 后处理收益不明显；不推荐替代 v17/v16 |
+| v25 | Dataset111 pseudo-top100 self-training 5fold `checkpoint_best.pth` ensemble | 0.857813 | 4.671629 | 0.274123 | DSC/ASD 当前最好；HD 比 v17/v19 略差，比 v16 差更多 |
 
 ## Task2 对比
 
@@ -130,10 +143,15 @@
 | v21 | v15 checkpoint + TTA/AMP + `threshold=0.285, min_total_area=1500` | 0.770197 | 95.627329 | 14.537786 | 总面积门控线上未改变结果，等同 v15/v19 |
 | v22 | supervised-only UNet++ EfficientNet-B4 `512x896` + TTA/AMP + `threshold=0.25` | 0.790266 | 216.022344 | 22.657026 | DSC 当前最高，但远端错误显著增加；说明新模型召回强、边界/假阳性控制不足 |
 | v23 | v15/v22 probability ensemble `0.5/0.5, threshold=0.4` | 0.798404 | 122.469457 | 14.554252 | DSC 当前最高；ensemble 成功压回 v22 的 HD/ASD，大幅优于 v12，但 HD 仍不如 v15 |
+| v24 | v15/v22 probability ensemble `0.55/0.45, threshold=0.42` | 0.797286 | 118.965305 | 14.092329 | 比 v23 更保守，HD/ASD 小幅改善但 DSC 小降；证明微调有效但收益有限 |
 
 ## 当前结论
 
-当前按 DSC 优先策略选择 **v23** 作为主提交候选：Task1 复用 v17，Task2 复用 v19，Task3 使用 v15/v22 probability ensemble。v23 把 Task3 DSC 推到当前最高，同时把 v22 失控的 ASD 基本压回 v15 水平；主要代价是 HD 仍高于 v15/v19。如果非常重视 Task3 HD，则 v15/v19 仍是距离指标备选。
+当前按组件最优策略，**v26 = v25 Task1 + v19 Task2 + v23 Task3** 是新的主提交候选，线上待测。v25 证明 Task1 自训练有效：相对 v17/v19，Task1 DSC 提高 `+0.000274`，ASD 改善 `-0.005141`，但 HD 增加 `+0.040455`；相对 v16，DSC 提高 `+0.000473`，ASD 改善 `-0.003942`，但 HD 增加 `+0.088447`。因此如果按 DSC/ASD 优先，Task1 应切到 v25；如果极端重视 HD，Task1 仍可保留 v16。
+
+当前已提交的完整包里，v23 仍是 Task3 DSC 优先主候选，v24 是更保守的 Task3 备选，v25 是 Task1 自训练验证包。v26 已将 v25 Task1 合并进 v23 这条 Task3 ensemble 分支；若 v26 结果符合预期，它会成为按 DSC 优先的当前主提交。
+
+当前 v23 完整包线上结果：
 
 ```text
 task1_ct: DSC 0.8575385873310171, HD 4.6311747736863405, ASD 0.2792648483145077
@@ -149,17 +167,21 @@ v22 相比 v19 只改变 Task3：使用 supervised-only UNet++ EfficientNet-B4 `
 
 v23 相比 v22 只改变 Task3 推理策略：把 v22 与稳定的 v15 做 `0.5/0.5` 概率 ensemble，并使用 `threshold=0.4`。Task3 DSC 继续提高 `+0.008138`，HD 改善 `-93.552887`，ASD 改善 `-8.102774`。相对 v15/v19，v23 的 Task3 DSC 提高 `+0.028207`，ASD 只增加 `+0.016466`，但 HD 增加 `+26.842129`。这说明 ensemble 方向成立：v15 成功压住了 v22 的大部分距离错误，同时保留并增强了 v22 的召回优势。
 
+v24 相比 v23 只做轻微保守化：v15/v22 权重从 `0.5/0.5` 改为 `0.55/0.45`，threshold 从 `0.4` 提到 `0.42`。Task3 DSC 降低 `-0.001118`，HD 改善 `-3.504152`，ASD 改善 `-0.461923`。这说明小幅保守化方向是对的，但 HD 改善幅度不大，继续靠类似微调很难获得实质突破。
+
 v16 相比 v15 只改变 Task1，Task2/Task3 结果保持一致；Task1 的 DSC、HD、ASD 三项全部大幅改善。
 
 v17 相比 v16 只把 Task1 从 `checkpoint_final.pth` ensemble 换成 `checkpoint_best.pth` ensemble。Task1 DSC 提高 `+0.000198`，但 HD 增加 `+0.047993`，ASD 增加 `+0.001200`。
 
 v18 相比 v17 增加了 Task1 轻量小连通域删除：DSC 降低 `-0.000005`，HD 改善 `-0.027594`，ASD 变差 `+0.001224`。整体收益不明显，不建议替代 v17；若看距离指标，v16 仍更好。
 
-| Task1 Metric | v15 | v16 final | v17 best | v18 post | 当前最好 |
-|---|---:|---:|---:|---:|---|
-| DSC | 0.810562 | 0.857340 | 0.857539 | 0.857534 | v17 |
-| HD | 6.902283 | 4.583182 | 4.631175 | 4.603581 | v16 |
-| ASD | 0.396594 | 0.278065 | 0.279265 | 0.280489 | v16 |
+v25 相比 v17/v19 只改变 Task1：使用 Dataset111 pseudo-top100 self-training 5fold `checkpoint_best.pth` ensemble。Task1 DSC 提高 `+0.000274`，ASD 改善 `-0.005141`，但 HD 增加 `+0.040455`。这说明 top100 高置信伪标签带来了真实泛化增益，尤其是平均表面距离改善明显；但它没有改善最坏边界距离。下一步应优先把 v25 Task1 合并到 v23/v24 的 Task3 ensemble 包中，而不是继续单独提交 v25 这种 Task3 回退到 v15 的组合。
+
+| Task1 Metric | v15 | v16 final | v17 best | v18 post | v25 pseudo-top100 | 当前最好 |
+|---|---:|---:|---:|---:|---:|---|
+| DSC | 0.810562 | 0.857340 | 0.857539 | 0.857534 | 0.857813 | v25 |
+| HD | 6.902283 | 4.583182 | 4.631175 | 4.603581 | 4.671629 | v16 |
+| ASD | 0.396594 | 0.278065 | 0.279265 | 0.280489 | 0.274123 | v25 |
 
 | Task2 Metric | v10 | v14/v15 | Delta |
 |---|---:|---:|---:|
@@ -306,6 +328,87 @@ task3_vid: DSC 0.7701966979705538, HD 95.62732850814587, ASD 14.537786225800227
 ```
 
 判断：v19 是 Task2 的明确 DSC 跃升版本。相对 v14/v17/v18，Task2 DSC 提高约 `+0.032049`，ASD 降低约 `-0.051741`，但 HD 增加约 `+0.292778`。因此按 DSC 或 DSC+ASD 优先，v19 是当前 Task2 最优；如果单独追求 Task2 HD，v14 仍略好。
+
+## v26 提交记录
+
+- 提交目录：`outputs/submissions/submit_v26_task1_v25_task2_v19_task3_v23/submission`
+- 提交压缩包：`outputs/submissions/submit_v26_task1_v25_task2_v19_task3_v23/submission.zip`
+- 记录文件：`outputs/submissions/submit_v26_task1_v25_task2_v19_task3_v23/checkpoint_record.md`
+- 生成时间：2026-07-24
+- 文件检查：submission 目录共 `101` 个文件；zip 根目录为 `t1_ct/`、`t2_tee/`、`t3_vid/`
+- 线上状态：待提交/待测评
+
+组成：
+
+| Task | 来源 | 说明 |
+|---|---|---|
+| task1_ct | v25 | Dataset111 pseudo-top100 self-training nnU-Net v2 3d_fullres，5fold `checkpoint_best.pth` ensemble |
+| task2_tee | v19 | Task2 nnU-Net v2 5fold `checkpoint_best.pth` ensemble，无后处理 |
+| task3_vid | v23 | v15/v22 probability ensemble，权重 `0.5/0.5`，threshold `0.4` |
+
+预期线上结果：
+
+```text
+task1_ct: DSC 0.8578127264071896, HD 4.671629372756556, ASD 0.27412349094227223
+task2_tee: DSC 0.8463245904808815, HD 11.196888629485855, ASD 0.6406354094949988
+task3_vid: DSC 0.7984039938855672, HD 122.46945721998627, ASD 14.554251785067644
+```
+
+判断：v26 是当前组件最优合并包。它把 v25 的 Task1 自训练增量接到 v23 的 Task3 DSC-best ensemble 上，同时保留 v19 的 Task2 最强结果。由于三个任务目录都是直接复制已验证组件，若平台不出现缓存或上传异常，v26 应该只体现这些组件分数的组合。
+
+## v25 提交记录
+
+- 提交目录：`outputs/submissions/submit_v25_task1_pseudo_top100_best_task2_v19_task3_v15/submission`
+- 提交压缩包：`outputs/submissions/submit_v25_task1_pseudo_top100_best_task2_v19_task3_v15/submission.zip`
+- 记录文件：`outputs/submissions/submit_v25_task1_pseudo_top100_best_task2_v19_task3_v15/checkpoint_record.md`
+- 生成时间：2026-07-23
+- 文件检查：submission 目录共 `101` 个文件；zip 根目录为 `t1_ct/`、`t2_tee/`、`t3_vid/`
+- 线上状态：已测评通过，三个 task 均 `ok`，missing_cases 均为 `0`
+
+组成：
+
+| Task | 来源 | 说明 |
+|---|---|---|
+| task1_ct | Dataset111 pseudo-top100 self-training | nnU-Net v2 3d_fullres，5fold `checkpoint_best.pth` ensemble |
+| task2_tee | v19 | Task2 nnU-Net v2 5fold `checkpoint_best.pth` ensemble，无后处理 |
+| task3_vid | v15 | v10 checkpoint + TTA + `threshold=0.285` |
+
+线上结果：
+
+```text
+task1_ct: DSC 0.8578127264071896, HD 4.671629372756556, ASD 0.27412349094227223
+task2_tee: DSC 0.8463245904808815, HD 11.196888629485855, ASD 0.6406354094949988
+task3_vid: DSC 0.7701966979705538, HD 95.62732850814587, ASD 14.537786225800227
+```
+
+判断：v25 验证了 Task1 自训练方向有效。相对 v17/v19，Task1 DSC 提高约 `+0.000274`，ASD 改善约 `-0.005141`，但 HD 变差约 `+0.040455`。由于 Task2 与 v19 完全一致、Task3 与 v15/v19 完全一致，本次线上差异可以归因于 Task1 pseudo-top100 自训练。按 DSC/ASD 优先，v25 应替代 v17/v19 作为新的 Task1 组件；按 HD 优先，v16 仍是 Task1 距离指标备选。
+
+## v24 提交记录
+
+- 提交目录：`outputs/submissions/submit_v24_task3_v15_v22_ens_w55_thr042_task1_v17_task2_v19/submission`
+- 提交压缩包：`outputs/submissions/submit_v24_task3_v15_v22_ens_w55_thr042_task1_v17_task2_v19/submission.zip`
+- 记录文件：`outputs/submissions/submit_v24_task3_v15_v22_ens_w55_thr042_task1_v17_task2_v19/checkpoint_record.md`
+- 生成时间：2026-07-23
+- 文件检查：submission 目录共 `101` 个文件；zip 根目录为 `t1_ct/`、`t2_tee/`、`t3_vid/`
+- 线上状态：已测评通过，三个 task 均 `ok`，missing_cases 均为 `0`
+
+组成：
+
+| Task | 来源 | 说明 |
+|---|---|---|
+| task1_ct | v17 / v19 | Task1 nnU-Net 5fold `checkpoint_best.pth` ensemble，无后处理 |
+| task2_tee | v19 | Task2 nnU-Net 5fold `checkpoint_best.pth` ensemble，无后处理 |
+| task3_vid | v15/v22 probability ensemble | v15 weight `0.55`，v22 weight `0.45`，threshold `0.42`，TTA/AMP，无后处理 |
+
+线上结果：
+
+```text
+task1_ct: DSC 0.8575385873310171, HD 4.6311747736863405, ASD 0.2792648483145077
+task2_tee: DSC 0.8463245904808815, HD 11.196888629485855, ASD 0.6406354094949988
+task3_vid: DSC 0.7972857440407505, HD 118.96530512123586, ASD 14.092328937421556
+```
+
+判断：v24 相对 v23 做了轻微保守化，确实带来 HD/ASD 小幅改善，但改善有限：HD 只下降约 `3.504152`，ASD 下降约 `0.461923`，同时 DSC 下降约 `0.001118`。这说明权重/阈值微调已经接近当前 ensemble 的收益上限；若要进一步实质性降低 HD，需要转向更针对 outlier 的方法，例如 frame-level 错误定位、时序一致性、边界/距离约束训练或按视频自适应策略。
 
 ## v23 提交记录
 

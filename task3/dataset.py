@@ -382,3 +382,90 @@ class UnlabeledPairDataset(torch.utils.data.Dataset):
             "strong": strong_t,
             "image_path": str(p),
         }
+
+
+class TemporalPairDataset(torch.utils.data.Dataset):
+    def __init__(
+        self,
+        samples: Sequence[Sample],
+        image_size: Tuple[int, int],
+        target_label: int,
+        cache_masks: bool,
+        use_imagenet_norm: bool,
+        seed: int,
+        max_frame_gap: int = 60,
+    ) -> None:
+        self.samples = list(samples)
+        self.image_size = image_size
+        self.target_label = int(target_label)
+        self.cache_masks = bool(cache_masks)
+        self.use_imagenet_norm = bool(use_imagenet_norm)
+        self.rng = random.Random(seed)
+        self.max_frame_gap = int(max_frame_gap)
+        self._mask_cache: Dict[Path, np.ndarray] = {}
+
+        if self.cache_masks:
+            for s in self.samples:
+                self._mask_cache[s.label_path] = self._read_mask(s)
+
+        by_video: Dict[str, List[int]] = {}
+        for idx, sample in enumerate(self.samples):
+            by_video.setdefault(sample.video_id, []).append(idx)
+        for video_id in list(by_video):
+            by_video[video_id] = sorted(by_video[video_id], key=lambda i: self.samples[i].frame_idx)
+
+        pairs: List[Tuple[int, int]] = []
+        for idxs in by_video.values():
+            for left, right in zip(idxs[:-1], idxs[1:]):
+                gap = abs(int(self.samples[right].frame_idx) - int(self.samples[left].frame_idx))
+                if self.max_frame_gap <= 0 or gap <= self.max_frame_gap:
+                    pairs.append((left, right))
+        self.pairs = pairs
+
+    def __len__(self) -> int:
+        return len(self.pairs)
+
+    def _read_mask(self, sample: Sample) -> np.ndarray:
+        if sample.label_kind == "bin_png":
+            arr = np.asarray(Image.open(sample.label_path).convert("L"), dtype=np.uint8)
+            return (arr > 127).astype(np.uint8)
+        if sample.label_kind == "tar":
+            return read_binary_mask_from_label_tar(sample.label_path, target_label=self.target_label)
+        raise ValueError(f"Unsupported label kind: {sample.label_kind}")
+
+    def _load_mask(self, sample: Sample) -> np.ndarray:
+        if sample.label_path in self._mask_cache:
+            return self._mask_cache[sample.label_path]
+        return self._read_mask(sample)
+
+    def _load_item(self, sample: Sample) -> tuple[torch.Tensor, torch.Tensor]:
+        image = np.asarray(Image.open(sample.image_path).convert("RGB"), dtype=np.float32) / 255.0
+        mask = self._load_mask(sample).astype(np.float32)
+
+        image_t = _to_tensor_chw(image)
+        mask_t = torch.from_numpy(mask[None, ...]).float()
+
+        if tuple(image_t.shape[1:]) != self.image_size:
+            image_t = _resize_chw(image_t, self.image_size, mode="bilinear")
+            mask_t = F.interpolate(mask_t.unsqueeze(0), size=self.image_size, mode="nearest").squeeze(0)
+
+        image_t = _normalize_if_needed(image_t, self.use_imagenet_norm)
+        return image_t, mask_t
+
+    def __getitem__(self, idx: int):
+        left_idx, right_idx = self.pairs[idx]
+        left = self.samples[left_idx]
+        right = self.samples[right_idx]
+        left_image, left_label = self._load_item(left)
+        right_image, right_label = self._load_item(right)
+        return {
+            "image_a": left_image,
+            "label_a": left_label,
+            "image_b": right_image,
+            "label_b": right_label,
+            "video_id": left.video_id,
+            "frame_idx_a": left.frame_idx,
+            "frame_idx_b": right.frame_idx,
+            "image_path_a": str(left.image_path),
+            "image_path_b": str(right.image_path),
+        }
