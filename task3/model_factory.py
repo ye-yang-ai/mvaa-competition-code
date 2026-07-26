@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 import torch
 import torch.nn as nn
@@ -11,8 +12,12 @@ import torch.nn.functional as F
 
 try:
     import segmentation_models_pytorch as smp
+    import segmentation_models_pytorch.encoders as smp_encoders
+    from segmentation_models_pytorch.encoders.timm_universal import TimmUniversalEncoder
 except Exception as e:  # pragma: no cover
     smp = None
+    smp_encoders = None
+    TimmUniversalEncoder = None
     _SMP_IMPORT_ERROR = e
 else:
     _SMP_IMPORT_ERROR = None
@@ -21,9 +26,47 @@ THIS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = THIS_DIR.parent
 LOCAL_SMP_WEIGHTS = {
     "efficientnet-b4": REPO_ROOT / "checkpoints" / "pretrained" / "smp" / "efficientnet-b4-imagenet" / "model.safetensors",
+    "efficientnet-b5": REPO_ROOT / "checkpoints" / "pretrained" / "smp" / "efficientnet-b5-imagenet" / "model.safetensors",
     "efficientnet-b3": REPO_ROOT / "checkpoints" / "pretrained" / "smp" / "efficientnet-b3-imagenet" / "model.safetensors",
+    "resnet50": REPO_ROOT / "checkpoints" / "pretrained" / "smp" / "resnet50-imagenet" / "model.safetensors",
     "resnet34": REPO_ROOT / "checkpoints" / "pretrained" / "smp" / "resnet34-imagenet" / "model.safetensors",
+    "mit_b2": REPO_ROOT / "checkpoints" / "pretrained" / "smp" / "mit_b2-imagenet" / "model.safetensors",
+    "mit_b3": REPO_ROOT / "checkpoints" / "pretrained" / "smp" / "mit_b3-imagenet" / "model.safetensors",
+    "mit_b4": REPO_ROOT / "checkpoints" / "pretrained" / "smp" / "mit_b4-imagenet" / "model.safetensors",
+    "tu-convnext_tiny.fb_in1k": REPO_ROOT
+    / "checkpoints"
+    / "pretrained"
+    / "smp"
+    / "tu-convnext_tiny.fb_in1k"
+    / "model.safetensors",
 }
+
+
+if TimmUniversalEncoder is not None:
+
+    class TimmUniversalHalfScaleEncoder(TimmUniversalEncoder):
+        def __init__(self, *args, half_scale_channels: int = 32, **kwargs) -> None:
+            super().__init__(*args, **kwargs)
+            self.half_scale_channels = int(half_scale_channels)
+            self.half_scale = nn.Sequential(
+                nn.Conv2d(self._in_channels, self.half_scale_channels, kernel_size=3, stride=2, padding=1),
+                nn.BatchNorm2d(self.half_scale_channels),
+                nn.ReLU(inplace=True),
+            )
+            if getattr(self, "_is_transformer_style", False):
+                self._out_channels = [self._in_channels, self.half_scale_channels] + self.model.feature_info.channels()
+
+        def forward(self, x: torch.Tensor) -> list[torch.Tensor]:
+            if not getattr(self, "_is_transformer_style", False):
+                return super().forward(x)
+
+            features = self.model(x)
+            if self._is_channel_last:
+                features = [feature.permute(0, 3, 1, 2).contiguous() for feature in features]
+            return [x, self.half_scale(x)] + features
+
+else:
+    TimmUniversalHalfScaleEncoder = None
 
 
 def _get_local_smp_weight_path(encoder_name: str, encoder_weights: str | None) -> Path | None:
@@ -34,7 +77,20 @@ def _get_local_smp_weight_path(encoder_name: str, encoder_weights: str | None) -
     return LOCAL_SMP_WEIGHTS.get(str(encoder_name).lower())
 
 
-def _load_local_encoder_weights(model: nn.Module, weights_path: Path) -> None:
+def _convert_timm_universal_state_dict(state_dict: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    converted = {}
+    for key, value in state_dict.items():
+        if key.startswith("head."):
+            continue
+        new_key = re.sub(r"^stem\.(\d+)\.", r"model.stem_\1.", key)
+        new_key = re.sub(r"^stages\.(\d+)\.", r"model.stages_\1.", new_key)
+        if not new_key.startswith("model."):
+            new_key = f"model.{new_key}"
+        converted[new_key] = value
+    return converted
+
+
+def _load_local_encoder_weights(model: nn.Module, weights_path: Path, encoder_name: str) -> None:
     try:
         from safetensors.torch import load_file
     except Exception as exc:  # pragma: no cover
@@ -46,7 +102,12 @@ def _load_local_encoder_weights(model: nn.Module, weights_path: Path) -> None:
         raise AttributeError("SMP model does not expose an encoder module.")
 
     state_dict = load_file(str(weights_path), device="cpu")
-    model.encoder.load_state_dict(state_dict, strict=False)
+    if str(encoder_name).lower().startswith("tu-"):
+        state_dict = _convert_timm_universal_state_dict(state_dict)
+    try:
+        model.encoder.load_state_dict(state_dict, strict=False)
+    except TypeError:
+        model.encoder.load_state_dict(state_dict)
 
 
 def get_model(
@@ -74,12 +135,30 @@ def get_model(
             classes=classes,
         )
     elif arch == "unetplusplus":
-        model = smp.UnetPlusPlus(
-            encoder_name=encoder_name,
-            encoder_weights=smp_encoder_weights,
-            in_channels=in_channels,
-            classes=classes,
-        )
+        if str(encoder_name).lower().startswith("tu-"):
+            if smp_encoders is None or TimmUniversalHalfScaleEncoder is None:
+                raise ImportError(
+                    "segmentation_models_pytorch timm universal encoder is required for tu-* backbones. "
+                    f"Original import error: {_SMP_IMPORT_ERROR!r}"
+                )
+            original_timm_universal_encoder = smp_encoders.TimmUniversalEncoder
+            smp_encoders.TimmUniversalEncoder = TimmUniversalHalfScaleEncoder
+            try:
+                model = smp.UnetPlusPlus(
+                    encoder_name=encoder_name,
+                    encoder_weights=smp_encoder_weights,
+                    in_channels=in_channels,
+                    classes=classes,
+                )
+            finally:
+                smp_encoders.TimmUniversalEncoder = original_timm_universal_encoder
+        else:
+            model = smp.UnetPlusPlus(
+                encoder_name=encoder_name,
+                encoder_weights=smp_encoder_weights,
+                in_channels=in_channels,
+                classes=classes,
+            )
     elif arch == "fpn":
         model = smp.FPN(
             encoder_name=encoder_name,
@@ -94,11 +173,18 @@ def get_model(
             in_channels=in_channels,
             classes=classes,
         )
+    elif arch == "segformer":
+        model = smp.Segformer(
+            encoder_name=encoder_name,
+            encoder_weights=smp_encoder_weights,
+            in_channels=in_channels,
+            classes=classes,
+        )
     else:
         raise ValueError(f"Unsupported architecture: {arch}")
 
     if local_weight_path is not None:
-        _load_local_encoder_weights(model, local_weight_path)
+        _load_local_encoder_weights(model, local_weight_path, encoder_name)
 
     return model
 

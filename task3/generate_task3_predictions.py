@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -40,7 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data-dir", type=Path, default=DATA_DIR)
     parser.add_argument("--submission-task-dir", type=Path, default=SUBMISSION_TASK_DIR)
     parser.add_argument("--video-folders", nargs="*", default=VIDEO_FOLDERS)
-    parser.add_argument("--device", choices=["auto", "cuda", "cpu"], default=DEVICE)
+    parser.add_argument("--device", default=DEVICE, help='"auto", "cpu", "cuda", or "cuda:N"')
     parser.add_argument("--tta", action="store_true", default=USE_TTA)
     parser.add_argument("--no-tta", action="store_false", dest="tta")
     parser.add_argument("--amp", action="store_true", default=AMP)
@@ -106,13 +107,13 @@ def load_ckpt_config(ckpt_path: Path) -> Tuple[dict, dict]:
 
 
 def pick_device(device_arg: str) -> torch.device:
-    mode = str(device_arg).lower().strip()
+    mode = str(os.environ.get("MVAA_DEVICE") or device_arg).lower().strip()
     if mode == "cpu":
         return torch.device("cpu")
-    if mode == "cuda":
+    if mode == "cuda" or mode.startswith("cuda:"):
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA requested but not available.")
-        return torch.device("cuda")
+        return torch.device(mode)
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 

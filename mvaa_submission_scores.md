@@ -1,4 +1,4 @@
-# MVAA 2026 Submission Scores v1-v26
+# MVAA 2026 Submission Scores v1-v27
 
 本文档记录已知线上评测结果。v1-v3 如果没有明确保存到对话中的完整结果，暂不补猜；从有明确结果的版本开始记录。
 
@@ -28,7 +28,8 @@
 | v23 | Task1 v17 + Task2 v19 + Task3 v15/v22 probability ensemble `0.5/0.5, threshold=0.4` | Task3 DSC 再次刷新且 ASD 基本回到 v15 水平；HD 明显优于 v22/v12 但仍差于 v15，当前按 DSC 优先的主力候选 |
 | v24 | Task1 v17 + Task2 v19 + Task3 v15/v22 probability ensemble `0.55/0.45, threshold=0.42` | v23 的轻微保守版本；DSC 小降，HD/ASD 小幅改善，但没有带来实质性 HD 突破 |
 | v25 | Task1 Dataset111 pseudo-top100 self-training 5fold + Task2 v19 + Task3 v15 | Task1 自训练增量试验；Task1 DSC 和 ASD 刷新当前最好，HD 略差于 v17/v19，证明 pseudo-top100 有正增量 |
-| v26 | Task1 v25 + Task2 v19 + Task3 v23 | 当前组件最优合并包；线上待测，预期为 v25 Task1 + v19 Task2 + v23 Task3 |
+| v26 | Task1 v25 + Task2 v19 + Task3 v23 | 当前组件最优合并包；结果完全符合预期，是当前按 DSC 优先的主提交 |
+| v27 | Task1 v25 + Task2 v19 + Task3 v30 EfficientNet-B4 EMA semi single model `threshold=0.35` | Task3 单模型验证包；DSC 略高于 v22 单模型，但明显低于 v23/v26 ensemble，HD/ASD 仍严重退化 |
 
 ## 总表
 
@@ -102,9 +103,12 @@
 | v25 | task1_ct | 0.857813 | 4.671629 | 0.274123 | Dataset111 pseudo-top100 self-training nnU-Net 5fold `checkpoint_best.pth` ensemble；DSC/ASD 当前 Task1 最好，HD 略差于 v17/v19，num_cases 30，missing_cases 0 |
 | v25 | task2_tee | 0.846325 | 11.196889 | 0.640635 | 沿用 v19，结果完全一致，num_cases 20，missing_cases 0 |
 | v25 | task3_vid | 0.770197 | 95.627329 | 14.537786 | 沿用 v15/v19，结果完全一致，num_cases 48，missing_cases 0 |
-| v26 | task1_ct | - | - | - | 沿用 v25；线上待测，预期 DSC 0.857813 / HD 4.671629 / ASD 0.274123 |
-| v26 | task2_tee | - | - | - | 沿用 v19；线上待测，预期 DSC 0.846325 / HD 11.196889 / ASD 0.640635 |
-| v26 | task3_vid | - | - | - | 沿用 v23；线上待测，预期 DSC 0.798404 / HD 122.469457 / ASD 14.554252 |
+| v26 | task1_ct | 0.857813 | 4.671629 | 0.274123 | 沿用 v25，num_cases 30，missing_cases 0 |
+| v26 | task2_tee | 0.846325 | 11.196889 | 0.640635 | 沿用 v19，num_cases 20，missing_cases 0 |
+| v26 | task3_vid | 0.798404 | 122.469457 | 14.554252 | 沿用 v23，num_cases 48，missing_cases 0 |
+| v27 | task1_ct | 0.857813 | 4.671629 | 0.274123 | 沿用 v25，与 v26 完全一致，num_cases 30，missing_cases 0 |
+| v27 | task2_tee | 0.846325 | 11.196889 | 0.640635 | 沿用 v19，与 v26 完全一致，num_cases 20，missing_cases 0 |
+| v27 | task3_vid | 0.791728 | 219.513061 | 23.135393 | v30 EfficientNet-B4 EMA semi single model，`threshold=0.35`，TTA/AMP，无后处理；DSC 略高于 v22 单模型但距离指标更差，num_cases 48，missing_cases 0 |
 
 ## Task1 对比
 
@@ -144,12 +148,13 @@
 | v22 | supervised-only UNet++ EfficientNet-B4 `512x896` + TTA/AMP + `threshold=0.25` | 0.790266 | 216.022344 | 22.657026 | DSC 当前最高，但远端错误显著增加；说明新模型召回强、边界/假阳性控制不足 |
 | v23 | v15/v22 probability ensemble `0.5/0.5, threshold=0.4` | 0.798404 | 122.469457 | 14.554252 | DSC 当前最高；ensemble 成功压回 v22 的 HD/ASD，大幅优于 v12，但 HD 仍不如 v15 |
 | v24 | v15/v22 probability ensemble `0.55/0.45, threshold=0.42` | 0.797286 | 118.965305 | 14.092329 | 比 v23 更保守，HD/ASD 小幅改善但 DSC 小降；证明微调有效但收益有限 |
+| v27 | v30 EfficientNet-B4 EMA semi single model `threshold=0.35` | 0.791728 | 219.513061 | 23.135393 | 单模型 DSC 比 v22 高 `+0.001462`，但 HD/ASD 更差；明显弱于 v23/v26 ensemble |
 
 ## 当前结论
 
-当前按组件最优策略，**v26 = v25 Task1 + v19 Task2 + v23 Task3** 是新的主提交候选，线上待测。v25 证明 Task1 自训练有效：相对 v17/v19，Task1 DSC 提高 `+0.000274`，ASD 改善 `-0.005141`，但 HD 增加 `+0.040455`；相对 v16，DSC 提高 `+0.000473`，ASD 改善 `-0.003942`，但 HD 增加 `+0.088447`。因此如果按 DSC/ASD 优先，Task1 应切到 v25；如果极端重视 HD，Task1 仍可保留 v16。
+当前按组件最优策略，**v26 = v25 Task1 + v19 Task2 + v23 Task3** 已通过线上验证，结果完全符合预期，是当前按 DSC 优先的主提交。v25 证明 Task1 自训练有效：相对 v17/v19，Task1 DSC 提高 `+0.000274`，ASD 改善 `-0.005141`，但 HD 增加 `+0.040455`；相对 v16，DSC 提高 `+0.000473`，ASD 改善 `-0.003942`，但 HD 增加 `+0.088447`。因此如果按 DSC/ASD 优先，Task1 应切到 v25；如果极端重视 HD，Task1 仍可保留 v16。
 
-当前已提交的完整包里，v23 仍是 Task3 DSC 优先主候选，v24 是更保守的 Task3 备选，v25 是 Task1 自训练验证包。v26 已将 v25 Task1 合并进 v23 这条 Task3 ensemble 分支；若 v26 结果符合预期，它会成为按 DSC 优先的当前主提交。
+当前已提交的完整包里，v26 是当前主提交；v23 是旧 Task1 组件下的 Task3 DSC 优先基线，v24 是更保守的 Task3 备选，v27 证明 v30 EMA 半监督单模型不能直接替代 v23/v26。
 
 当前 v23 完整包线上结果：
 
@@ -168,6 +173,8 @@ v22 相比 v19 只改变 Task3：使用 supervised-only UNet++ EfficientNet-B4 `
 v23 相比 v22 只改变 Task3 推理策略：把 v22 与稳定的 v15 做 `0.5/0.5` 概率 ensemble，并使用 `threshold=0.4`。Task3 DSC 继续提高 `+0.008138`，HD 改善 `-93.552887`，ASD 改善 `-8.102774`。相对 v15/v19，v23 的 Task3 DSC 提高 `+0.028207`，ASD 只增加 `+0.016466`，但 HD 增加 `+26.842129`。这说明 ensemble 方向成立：v15 成功压住了 v22 的大部分距离错误，同时保留并增强了 v22 的召回优势。
 
 v24 相比 v23 只做轻微保守化：v15/v22 权重从 `0.5/0.5` 改为 `0.55/0.45`，threshold 从 `0.4` 提到 `0.42`。Task3 DSC 降低 `-0.001118`，HD 改善 `-3.504152`，ASD 改善 `-0.461923`。这说明小幅保守化方向是对的，但 HD 改善幅度不大，继续靠类似微调很难获得实质突破。
+
+v27 相比 v26 只改变 Task3：从 v23 ensemble 换成 v30 EfficientNet-B4 EMA 半监督单模型。Task3 DSC 降低 `-0.006676`，HD 增加 `+97.043604`，ASD 增加 `+8.581141`。相对 v22 单模型，v27 DSC 只提高 `+0.001462`，但 HD 增加 `+3.490717`，ASD 增加 `+0.478367`。结论是 EMA 半监督确实略微提高了单模型覆盖/DSC，但没有解决 EfficientNet-B4 单模型的远端错误，线上仍表现为高召回、距离失控；后续只能把它作为 ensemble 候选分支，不应单独提交为主模型。
 
 v16 相比 v15 只改变 Task1，Task2/Task3 结果保持一致；Task1 的 DSC、HD、ASD 三项全部大幅改善。
 
@@ -329,6 +336,61 @@ task3_vid: DSC 0.7701966979705538, HD 95.62732850814587, ASD 14.537786225800227
 
 判断：v19 是 Task2 的明确 DSC 跃升版本。相对 v14/v17/v18，Task2 DSC 提高约 `+0.032049`，ASD 降低约 `-0.051741`，但 HD 增加约 `+0.292778`。因此按 DSC 或 DSC+ASD 优先，v19 是当前 Task2 最优；如果单独追求 Task2 HD，v14 仍略好。
 
+## v27 提交记录
+
+- 提交目录：`outputs/submissions/submit_v27_task1_v25_task2_v19_task3_v30_effb4_ema/submission`
+- 提交压缩包：`outputs/submissions/submit_v27_task1_v25_task2_v19_task3_v30_effb4_ema/submission.zip`
+- 记录文件：`outputs/submissions/submit_v27_task1_v25_task2_v19_task3_v30_effb4_ema/checkpoint_record.md`
+- 生成时间：2026-07-26
+- 文件检查：submission 目录共 `101` 个文件；zip 根目录为 `t1_ct/`、`t2_tee/`、`t3_vid/`
+- 线上状态：已测评
+
+组成：
+
+| Task | 来源 | 说明 |
+|---|---|---|
+| task1_ct | v25 | Dataset111 pseudo-top100 self-training nnU-Net v2 3d_fullres，5fold `checkpoint_best.pth` ensemble |
+| task2_tee | v19 | Task2 nnU-Net v2 5fold `checkpoint_best.pth` ensemble，无后处理 |
+| task3_vid | v30 | UNet++ EfficientNet-B4 ImageNet，EMA 半监督，从 v22 初始化，`threshold=0.35`，TTA/AMP，无后处理 |
+
+Task3 本地验证：
+
+```text
+best_epoch: 9
+score: 0.6409362820
+val_dice: 0.8509324193
+val_hd: 64.4515991211
+val_asd: 9.7021255493
+threshold: 0.35
+```
+
+判断目标：v27 是 Task3 v30 的单模型线上验证包。它不做 v15/v23 ensemble，目的是干净判断 EfficientNet-B4 EMA 半监督本身是否有线上泛化收益。
+
+线上结果：
+
+```text
+task1_ct:
+  DSC: 0.8578127264071896
+  HD: 4.671629372756556
+  ASD: 0.27412349094227223
+  num_cases: 30
+  missing_cases: 0
+task2_tee:
+  DSC: 0.8463245904808815
+  HD: 11.196888629485855
+  ASD: 0.6406354094949988
+  num_cases: 20
+  missing_cases: 0
+task3_vid:
+  DSC: 0.7917279003797691
+  HD: 219.51306126221417
+  ASD: 23.135393070923197
+  num_cases: 48
+  missing_cases: 0
+```
+
+结论：v27 的 Task1/Task2 与 v26 完全一致；Task3 单模型不如 v26/v23 ensemble。相对 v26，Task3 DSC 下降约 `-0.006676`，HD 增加约 `+97.043604`，ASD 增加约 `+8.581141`。v30 EMA 半监督只能作为后续 ensemble 分支候选，不能作为主提交单模型。
+
 ## v26 提交记录
 
 - 提交目录：`outputs/submissions/submit_v26_task1_v25_task2_v19_task3_v23/submission`
@@ -336,7 +398,7 @@ task3_vid: DSC 0.7701966979705538, HD 95.62732850814587, ASD 14.537786225800227
 - 记录文件：`outputs/submissions/submit_v26_task1_v25_task2_v19_task3_v23/checkpoint_record.md`
 - 生成时间：2026-07-24
 - 文件检查：submission 目录共 `101` 个文件；zip 根目录为 `t1_ct/`、`t2_tee/`、`t3_vid/`
-- 线上状态：待提交/待测评
+- 线上状态：已测评
 
 组成：
 
@@ -354,7 +416,30 @@ task2_tee: DSC 0.8463245904808815, HD 11.196888629485855, ASD 0.6406354094949988
 task3_vid: DSC 0.7984039938855672, HD 122.46945721998627, ASD 14.554251785067644
 ```
 
-判断：v26 是当前组件最优合并包。它把 v25 的 Task1 自训练增量接到 v23 的 Task3 DSC-best ensemble 上，同时保留 v19 的 Task2 最强结果。由于三个任务目录都是直接复制已验证组件，若平台不出现缓存或上传异常，v26 应该只体现这些组件分数的组合。
+线上结果：
+
+```text
+task1_ct:
+  DSC: 0.8578127264071896
+  HD: 4.671629372756556
+  ASD: 0.27412349094227223
+  num_cases: 30
+  missing_cases: 0
+task2_tee:
+  DSC: 0.8463245904808815
+  HD: 11.196888629485855
+  ASD: 0.6406354094949988
+  num_cases: 20
+  missing_cases: 0
+task3_vid:
+  DSC: 0.7984039938855672
+  HD: 122.46945721998627
+  ASD: 14.554251785067644
+  num_cases: 48
+  missing_cases: 0
+```
+
+判断：v26 是当前组件最优合并包。它把 v25 的 Task1 自训练增量接到 v23 的 Task3 DSC-best ensemble 分支上，同时保留 v19 的 Task2 最强结果。线上结果与预期完全一致，因此 v26 是当前按 DSC 优先的主提交。
 
 ## v25 提交记录
 

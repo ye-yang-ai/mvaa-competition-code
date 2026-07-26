@@ -51,7 +51,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--unlabeled-root", type=str, default=str(TASK3_ROOT / "未标记素材-图片" / "images"))
     parser.add_argument("--output-dir", type=str, default=str(THIS_DIR / "runs" / "semi_baseline_default"))
 
-    parser.add_argument("--arch", type=str, default="unetplusplus", choices=["unet", "unetplusplus", "fpn", "deeplabv3plus"])
+    parser.add_argument(
+        "--arch",
+        type=str,
+        default="unetplusplus",
+        choices=["unet", "unetplusplus", "fpn", "deeplabv3plus", "segformer"],
+    )
     parser.add_argument("--encoder-name", type=str, default="efficientnet-b4")
     parser.add_argument("--encoder-weights", type=str, default="none", choices=["none", "imagenet"])
     parser.add_argument("--target-label", type=int, default=10)
