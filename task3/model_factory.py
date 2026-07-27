@@ -27,6 +27,7 @@ REPO_ROOT = THIS_DIR.parent
 LOCAL_SMP_WEIGHTS = {
     "efficientnet-b4": REPO_ROOT / "checkpoints" / "pretrained" / "smp" / "efficientnet-b4-imagenet" / "model.safetensors",
     "efficientnet-b5": REPO_ROOT / "checkpoints" / "pretrained" / "smp" / "efficientnet-b5-imagenet" / "model.safetensors",
+    "efficientnet-b6": REPO_ROOT / "checkpoints" / "pretrained" / "smp" / "efficientnet-b6-imagenet" / "model.safetensors",
     "efficientnet-b3": REPO_ROOT / "checkpoints" / "pretrained" / "smp" / "efficientnet-b3-imagenet" / "model.safetensors",
     "resnet50": REPO_ROOT / "checkpoints" / "pretrained" / "smp" / "resnet50-imagenet" / "model.safetensors",
     "resnet34": REPO_ROOT / "checkpoints" / "pretrained" / "smp" / "resnet34-imagenet" / "model.safetensors",
