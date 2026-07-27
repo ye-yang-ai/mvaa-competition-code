@@ -1,4 +1,4 @@
-# MVAA 2026 Submission Scores v1-v32
+# MVAA 2026 Submission Scores v1-v33
 
 本文档记录已知线上评测结果。v1-v3 如果没有明确保存到对话中的完整结果，暂不补猜；从有明确结果的版本开始记录。
 
@@ -35,6 +35,7 @@
 | v30 | Task1 v25 + Task2 v19 + Task3 v15/v22/B5 probability ensemble `0.50/0.20/0.30, threshold=0.40` | 基于缓存概率局部搜索得到的精细权重版；DSC 略低于 v29，但 HD/ASD 继续改善，当前距离优先/均衡候选 |
 | v31 | Task1 Dataset111 pseudo-top100 `checkpoint_final.pth` + Task2 v19 + Task3 v30 | Task1 checkpoint 对照试验；top100 final 未超过 v25 best，DSC/ASD 下降，仅 HD 极小改善 |
 | v32 | Task1 v25 + Task2 v19 + Task3 v30 + Cutie VOS gate | 第一版 Cutie 时序后处理验证包；Task3 HD 明确刷新当前最好，但 ASD 相比 v29/v30 变差，作为 HD 优先候选 |
+| v33 | Task1 v25 + Task2 v19 + Task3 ROI refine v1 | 第一版二阶段 ROI 高分辨率精修验证包；Task3 DSC/HD/ASD 全面明显退化，抛弃纯 ROI 替代路线 |
 
 ## 总表
 
@@ -129,6 +130,9 @@
 | v32 | task1_ct | 0.857813 | 4.671629 | 0.274123 | 沿用 v25，结果完全一致，num_cases 30，missing_cases 0 |
 | v32 | task2_tee | 0.846325 | 11.196889 | 0.640635 | 沿用 v19，结果完全一致，num_cases 20，missing_cases 0 |
 | v32 | task3_vid | 0.800005 | 88.494260 | 14.071110 | v30 Task3 ensemble + Cutie VOS prior/gate 后处理；相对 v30，DSC `-0.000273`、HD `-8.949541`、ASD `+0.885730`，num_cases 48，missing_cases 0 |
+| v33 | task1_ct | 0.857813 | 4.671629 | 0.274123 | 沿用 v25，结果完全一致，num_cases 30，missing_cases 0 |
+| v33 | task2_tee | 0.846325 | 11.196889 | 0.640635 | 沿用 v19，结果完全一致，num_cases 20，missing_cases 0 |
+| v33 | task3_vid | 0.714739 | 107.004474 | 18.459779 | 第一版 ROI refine：v30 mask bbox + UNet++ ResNet34 ROI `768x1024`，threshold `0.20`；相对 v30，DSC `-0.085540`、HD `+9.560673`、ASD `+5.274399`，不推荐 |
 
 ## Task1 对比
 
@@ -174,12 +178,13 @@
 | v29 | v15/v22/B5 probability ensemble `0.45/0.35/0.20, threshold=0.40` | 0.802186 | 101.142118 | 13.298139 | 当前 Task3 最好；相对 v26，DSC `+0.003782`，HD `-21.327340`，ASD `-1.256112` |
 | v30 | v15/v22/B5 probability ensemble `0.50/0.20/0.30, threshold=0.40` | 0.800279 | 97.443801 | 13.185380 | DSC 低于 v29 `-0.001908`，但 HD 改善 `-3.698316`、ASD 改善 `-0.112759`；当前 Task3 距离优先最佳 ensemble |
 | v32 | v30 + Cutie VOS prior/gate 后处理 | 0.800005 | 88.494260 | 14.071110 | Cutie 成功大幅压低 HD，相对 v30 HD 改善 `-8.949541`、DSC 仅降 `-0.000273`，但 ASD 变差 `+0.885730`；当前 Task3 HD 最佳候选 |
+| v33 | v30 bbox + UNet++ ResNet34 ROI refine `768x1024, threshold=0.20` | 0.714739 | 107.004474 | 18.459779 | 纯 ROI 替代失败；相对 v30，DSC `-0.085540`、HD `+9.560673`、ASD `+5.274399`，抛弃该路线 |
 
 ## 当前结论
 
-当前按组件最优策略，**v29 = v25 Task1 + v19 Task2 + v15/v22/B5 Task3 ensemble** 仍是 DSC 优先主提交；**v30 = v29 的局部搜索精细权重版** 是 ASD/均衡候选；**v32 = v30 + Cutie VOS gate** 是 HD 优先候选。v32 相对 v30 的 Task3 DSC 仅下降 `-0.000273`，HD 大幅改善 `-8.949541`，但 ASD 变差 `+0.885730`，说明 Cutie 确实修掉了一部分远端极端误差，但当前融合/门控可能让平均边界距离变粗。v30 相对 v29 的 Task3 DSC 降低 `-0.001908`，但 HD 改善 `-3.698316`，ASD 改善 `-0.112759`，说明缓存概率局部搜索方向有效：减少 v22/B4 权重、增加 v15/B5 权重，可以进一步压远端误差。v25 证明 Task1 自训练有效：相对 v17/v19，Task1 DSC 提高 `+0.000274`，ASD 改善 `-0.005141`，但 HD 增加 `+0.040455`；相对 v16，DSC 提高 `+0.000473`，ASD 改善 `-0.003942`，但 HD 增加 `+0.088447`。因此如果按 DSC/ASD 优先，Task1 应切到 v25；如果极端重视 HD，Task1 仍可保留 v16。
+当前按组件最优策略，**v29 = v25 Task1 + v19 Task2 + v15/v22/B5 Task3 ensemble** 仍是 DSC 优先主提交；**v30 = v29 的局部搜索精细权重版** 是 ASD/均衡候选；**v32 = v30 + Cutie VOS gate** 是 HD 优先候选。v33 证明当前第一版纯 ROI refine 替代方案不可行：相对 v30，Task3 DSC 大幅下降 `-0.085540`，HD 变差 `+9.560673`，ASD 变差 `+5.274399`，应抛弃该路线。v32 相对 v30 的 Task3 DSC 仅下降 `-0.000273`，HD 大幅改善 `-8.949541`，但 ASD 变差 `+0.885730`，说明 Cutie 确实修掉了一部分远端极端误差，但当前融合/门控可能让平均边界距离变粗。v30 相对 v29 的 Task3 DSC 降低 `-0.001908`，但 HD 改善 `-3.698316`，ASD 改善 `-0.112759`，说明缓存概率局部搜索方向有效：减少 v22/B4 权重、增加 v15/B5 权重，可以进一步压远端误差。v25 证明 Task1 自训练有效：相对 v17/v19，Task1 DSC 提高 `+0.000274`，ASD 改善 `-0.005141`，但 HD 增加 `+0.040455`；相对 v16，DSC 提高 `+0.000473`，ASD 改善 `-0.003942`，但 HD 增加 `+0.088447`。因此如果按 DSC/ASD 优先，Task1 应切到 v25；如果极端重视 HD，Task1 仍可保留 v16。
 
-当前已提交的完整包里，v29 是 DSC 优先主提交，v30 是 ASD/均衡候选，v32 是 HD 优先候选；v31 是 Task1 pseudo-top100 `checkpoint_final.pth` 对照包，结果未超过 v25 best。v26/v23 是旧主力 ensemble 基线，v24 是更保守的 Task3 备选，v28 证明 B5 单模型虽然不够强，但作为稳定分支加入 ensemble 后非常有效。
+当前已提交的完整包里，v29 是 DSC 优先主提交，v30 是 ASD/均衡候选，v32 是 HD 优先候选；v33 是 ROI refine 失败包，不推荐继续；v31 是 Task1 pseudo-top100 `checkpoint_final.pth` 对照包，结果未超过 v25 best。v26/v23 是旧主力 ensemble 基线，v24 是更保守的 Task3 备选，v28 证明 B5 单模型虽然不够强，但作为稳定分支加入 ensemble 后非常有效。
 
 当前 v23 完整包线上结果：
 
