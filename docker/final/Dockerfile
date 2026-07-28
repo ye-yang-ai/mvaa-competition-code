@@ -10,13 +10,13 @@ ENV TORCH_CUDA_ARCH_LIST=7.0
 
 WORKDIR /workspace
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends git libglib2.0-0 libgl1 \
-    && rm -rf /var/lib/apt/lists/*
+ARG PIP_INDEX_URL=https://pypi.org/simple
 
 COPY docker/final/requirements.txt /workspace/docker/final/requirements.txt
 RUN python -m pip install --upgrade pip \
-    && python -m pip install -r /workspace/docker/final/requirements.txt
+        --index-url "${PIP_INDEX_URL}" \
+    && python -m pip install -r /workspace/docker/final/requirements.txt \
+        --index-url "${PIP_INDEX_URL}"
 
 COPY task3/ /workspace/task3/
 COPY scripts/final_infer_v35.py /workspace/scripts/final_infer_v35.py

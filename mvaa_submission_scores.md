@@ -1,4 +1,4 @@
-# MVAA 2026 Submission Scores v1-v35
+# MVAA 2026 Submission Scores v1-v37
 
 本文档记录已知线上评测结果。v1-v3 如果没有明确保存到对话中的完整结果，暂不补猜；从有明确结果的版本开始记录。
 
@@ -38,6 +38,8 @@
 | v33 | Task1 v25 + Task2 v19 + Task3 ROI refine v1 | 第一版二阶段 ROI 高分辨率精修验证包；Task3 DSC/HD/ASD 全面明显退化，抛弃纯 ROI 替代路线 |
 | v34 | Task1 v25 + Task2 v19 + Task3 ResNet34_s49 single `threshold=0.55` | 新 ResNet34 seed 单模型验证包；HD 刷新单模型最好，但 DSC 明显低于 ensemble，不适合作为主提交 |
 | v35 | Task1 v25 + Task2 v19 + Task3 五模型 ensemble `threshold=0.40` | v15 ResNet34 + ResNet34_s49 + B4_s42 + B5_s42 + B5_s44；Task3 DSC/HD/ASD 三项全部刷新当前最好，当前主提交 |
+| v36 | Task1 v25 + Task2 v19 + Task3 refined 五模型 ensemble `threshold=0.395` | 本地缓存概率搜索得到的 v35 refined 权重；线上效果在 v37 的 Task3 分项中体现，未超过 v35 |
+| v37 | Task1 Dataset112 pseudo-top200 self-training 5fold + Task2 v19 + Task3 v36 refined | top200 线上未超过 top100/v25；HD 比 v25 改善但 DSC/ASD 下降，不建议替代 v25 Task1 |
 
 ## 总表
 
@@ -141,6 +143,9 @@
 | v35 | task1_ct | 0.857813 | 4.671629 | 0.274123 | 沿用 v25，结果完全一致，num_cases 30，missing_cases 0 |
 | v35 | task2_tee | 0.846325 | 11.196889 | 0.640635 | 沿用 v19，结果完全一致，num_cases 20，missing_cases 0 |
 | v35 | task3_vid | 0.804892 | 73.787839 | 12.248903 | 五模型 probability ensemble：`0.30*v15 + 0.20*ResNet34_s49 + 0.20*v22/B4 + 0.15*B5_s42 + 0.15*B5_s44`，threshold `0.40`；Task3 三项全部刷新当前最好 |
+| v37 | task1_ct | 0.857556 | 4.636551 | 0.276466 | Dataset112 pseudo-top200 self-training nnU-Net 5fold `checkpoint_best.pth` ensemble；相对 v25/top100，DSC `-0.000257`、HD `-0.035078`、ASD `+0.002342`，不建议替代 v25 |
+| v37 | task2_tee | 0.846325 | 11.196889 | 0.640635 | 沿用 v19，结果完全一致，num_cases 20，missing_cases 0 |
+| v37 | task3_vid | 0.800257 | 74.199253 | 12.358669 | 沿用 v36 refined 五模型 ensemble；相对 v35，DSC `-0.004635`、HD `+0.411414`、ASD `+0.109766`，未超过 v35 |
 
 ## Task1 对比
 
@@ -152,6 +157,7 @@
 | v18 | v17 + min_size=100 postprocess | 0.857534 | 4.603581 | 0.280489 | 后处理收益不明显；不推荐替代 v17/v16 |
 | v25 | Dataset111 pseudo-top100 self-training 5fold `checkpoint_best.pth` ensemble | 0.857813 | 4.671629 | 0.274123 | DSC/ASD 当前最好；HD 比 v17/v19 略差，比 v16 差更多 |
 | v31 | Dataset111 pseudo-top100 self-training 5fold `checkpoint_final.pth` ensemble | 0.857389 | 4.671147 | 0.275189 | 相对 v25 best：DSC `-0.000424`、HD `-0.000482`、ASD `+0.001066`；不推荐替代 v25 |
+| v37 | Dataset112 pseudo-top200 self-training 5fold `checkpoint_best.pth` ensemble | 0.857556 | 4.636551 | 0.276466 | 相对 v25/top100：DSC `-0.000257`、HD `-0.035078`、ASD `+0.002342`；本地验证提升未线上泛化，不推荐替代 v25 |
 
 ## Task2 对比
 
@@ -189,10 +195,13 @@
 | v33 | v30 bbox + UNet++ ResNet34 ROI refine `768x1024, threshold=0.20` | 0.714739 | 107.004474 | 18.459779 | 纯 ROI 替代失败；相对 v30，DSC `-0.085540`、HD `+9.560673`、ASD `+5.274399`，抛弃该路线 |
 | v34 | UNet++ ResNet34_s49 single `threshold=0.55` | 0.749109 | 85.364217 | 14.676287 | 单模型 HD 明确改善，但 DSC 明显不足；证明 ResNet34_s49 更适合作为稳定分支而非单独提交 |
 | v35 | 五模型 ensemble `0.30*v15 + 0.20*Res34_s49 + 0.20*B4 + 0.15*B5_s42 + 0.15*B5_s44, threshold=0.40` | 0.804892 | 73.787839 | 12.248903 | 当前 Task3 全指标最优；相对 v29，DSC `+0.002706`、HD `-27.354278`、ASD `-1.049236`；相对 v30，DSC `+0.004613`、HD `-23.655962`、ASD `-0.936477` |
+| v37 | v36 refined 五模型 ensemble `0.300*v15 + 0.275*Res34_s49 + 0.125*B4 + 0.075*B5_s42 + 0.225*B5_s44, threshold=0.395` | 0.800257 | 74.199253 | 12.358669 | refined 权重线上未超过 v35；相对 v35，DSC `-0.004635`、HD `+0.411414`、ASD `+0.109766` |
 
 ## 当前结论
 
-当前按组件最优策略，**v35 = v25 Task1 + v19 Task2 + 五模型 Task3 ensemble** 是新的主提交。v35 的 Task3 同时刷新 DSC、HD、ASD：相对 v29，DSC `+0.002706`、HD `-27.354278`、ASD `-1.049236`；相对 v30，DSC `+0.004613`、HD `-23.655962`、ASD `-0.936477`；相对 v32，DSC `+0.004887`、HD `-14.706421`、ASD `-1.822207`。这说明“稳定 ResNet 分支 + 受控 B4 高召回 + B5 多 seed 稳定分支”的方向比单纯 Cutie/ROI/单模型替换更有效。
+当前按组件最优策略，**v35 = v25 Task1 + v19 Task2 + 五模型 Task3 ensemble** 仍是主提交。v37 验证了 top200 和 v36 refined 权重：Task1 top200 相对 v25/top100 的 DSC 下降 `-0.000257`、ASD 变差 `+0.002342`，只换来 HD 改善 `-0.035078`；Task3 refined 相对 v35 的 DSC 下降 `-0.004635`，HD/ASD 也小幅变差。因此 v37 不应替代 v35，Task1 继续保留 v25/top100，Task3 继续保留 v35 五模型权重。
+
+v35 的 Task3 同时刷新 DSC、HD、ASD：相对 v29，DSC `+0.002706`、HD `-27.354278`、ASD `-1.049236`；相对 v30，DSC `+0.004613`、HD `-23.655962`、ASD `-0.936477`；相对 v32，DSC `+0.004887`、HD `-14.706421`、ASD `-1.822207`。这说明“稳定 ResNet 分支 + 受控 B4 高召回 + B5 多 seed 稳定分支”的方向比单纯 Cutie/ROI/单模型替换更有效。
 
 v34 验证了 ResNet34_s49 的角色：它单独提交时 Task3 DSC 只有 `0.749109`，明显低于 v15/v29/v30/v35，但 HD 达到 `85.364217`，比 v15 进一步改善 `-10.263111`。因此 ResNet34_s49 不适合单独主用，但非常适合作为 ensemble 中的距离稳定器。v33 证明当前第一版纯 ROI refine 替代方案不可行：相对 v30，Task3 DSC 大幅下降 `-0.085540`，HD 变差 `+9.560673`，ASD 变差 `+5.274399`，应抛弃该路线。v32 相对 v30 的 Task3 DSC 仅下降 `-0.000273`，HD 大幅改善 `-8.949541`，但 ASD 变差 `+0.885730`，说明 Cutie 确实修掉了一部分远端极端误差，但当前融合/门控可能让平均边界距离变粗。v25 证明 Task1 自训练有效：相对 v17/v19，Task1 DSC 提高 `+0.000274`，ASD 改善 `-0.005141`，但 HD 增加 `+0.040455`；相对 v16，DSC 提高 `+0.000473`，ASD 改善 `-0.003942`，但 HD 增加 `+0.088447`。因此如果按 DSC/ASD 优先，Task1 应切到 v25；如果极端重视 HD，Task1 仍可保留 v16。
 
@@ -232,13 +241,15 @@ v17 相比 v16 只把 Task1 从 `checkpoint_final.pth` ensemble 换成 `checkpoi
 
 v18 相比 v17 增加了 Task1 轻量小连通域删除：DSC 降低 `-0.000005`，HD 改善 `-0.027594`，ASD 变差 `+0.001224`。整体收益不明显，不建议替代 v17；若看距离指标，v16 仍更好。
 
-v25 相比 v17/v19 只改变 Task1：使用 Dataset111 pseudo-top100 self-training 5fold `checkpoint_best.pth` ensemble。Task1 DSC 提高 `+0.000274`，ASD 改善 `-0.005141`，但 HD 增加 `+0.040455`。这说明 top100 高置信伪标签带来了真实泛化增益，尤其是平均表面距离改善明显；但它没有改善最坏边界距离。下一步应优先把 v25 Task1 合并到 v23/v24 的 Task3 ensemble 包中，而不是继续单独提交 v25 这种 Task3 回退到 v15 的组合。
+v25 相比 v17/v19 只改变 Task1：使用 Dataset111 pseudo-top100 self-training 5fold `checkpoint_best.pth` ensemble。Task1 DSC 提高 `+0.000274`，ASD 改善 `-0.005141`，但 HD 增加 `+0.040455`。这说明 top100 高置信伪标签带来了真实泛化增益，尤其是平均表面距离改善明显；但它没有改善最坏边界距离。后续 v37/top200 未能超过 v25，因此当前 Task1 主线仍应保留 Dataset111 pseudo-top100。
 
-| Task1 Metric | v15 | v16 final | v17 best | v18 post | v25 pseudo-top100 | 当前最好 |
-|---|---:|---:|---:|---:|---:|---|
-| DSC | 0.810562 | 0.857340 | 0.857539 | 0.857534 | 0.857813 | v25 |
-| HD | 6.902283 | 4.583182 | 4.631175 | 4.603581 | 4.671629 | v16 |
-| ASD | 0.396594 | 0.278065 | 0.279265 | 0.280489 | 0.274123 | v25 |
+v37 相比 v25 只改变 Task1 伪标签数量：从 top100 扩到 top200。线上 Task1 DSC 下降 `-0.000257`，ASD 变差 `+0.002342`，HD 改善 `-0.035078`。这说明更大的 pseudo set 在本地验证上看起来更好，但线上泛化不如 top100，推测新增伪标签引入了轻微噪声或分布偏移。除非特别追求 Task1 HD，否则不建议使用 top200 替代 v25/top100。
+
+| Task1 Metric | v15 | v16 final | v17 best | v18 post | v25 pseudo-top100 | v37 pseudo-top200 | 当前最好 |
+|---|---:|---:|---:|---:|---:|---:|---|
+| DSC | 0.810562 | 0.857340 | 0.857539 | 0.857534 | 0.857813 | 0.857556 | v25 |
+| HD | 6.902283 | 4.583182 | 4.631175 | 4.603581 | 4.671629 | 4.636551 | v16 |
+| ASD | 0.396594 | 0.278065 | 0.279265 | 0.280489 | 0.274123 | 0.276466 | v25 |
 
 | Task2 Metric | v10 | v14/v15 | Delta |
 |---|---:|---:|---:|
@@ -385,6 +396,51 @@ task3_vid: DSC 0.7701966979705538, HD 95.62732850814587, ASD 14.537786225800227
 ```
 
 判断：v19 是 Task2 的明确 DSC 跃升版本。相对 v14/v17/v18，Task2 DSC 提高约 `+0.032049`，ASD 降低约 `-0.051741`，但 HD 增加约 `+0.292778`。因此按 DSC 或 DSC+ASD 优先，v19 是当前 Task2 最优；如果单独追求 Task2 HD，v14 仍略好。
+
+## v37 提交记录
+
+- 线上版本：v37 top200
+- 实际提交目录：`outputs/submissions/submit_v36_task1_top200_best_task2_v19_task3_v36_refined/submission`
+- 实际提交压缩包：`outputs/submissions/submit_v36_task1_top200_best_task2_v19_task3_v36_refined/submission.zip`
+- 记录文件：`outputs/submissions/submit_v36_task1_top200_best_task2_v19_task3_v36_refined/checkpoint_record.md`
+- 生成时间：2026-07-28
+- 文件检查：submission zip 共 `101` 个文件；zip 根目录为 `t1_ct/`、`t2_tee/`、`t3_vid/`
+- 线上状态：已测评通过，三个 task 均 `ok`，missing_cases 均为 `0`
+
+组成：
+
+| Task | 来源 | 说明 |
+|---|---|---|
+| task1_ct | Dataset112 pseudo-top200 self-training | nnU-Net v2 3d_fullres，5fold `checkpoint_best.pth` ensemble |
+| task2_tee | v19 | Task2 nnU-Net v2 5fold `checkpoint_best.pth` ensemble，无后处理 |
+| task3_vid | v36 refined | 五模型 refined probability ensemble：`0.300*v15 + 0.275*ResNet34_s49 + 0.125*B4_s42 + 0.075*B5_s42 + 0.225*B5_s44`，threshold `0.395` |
+
+线上结果：
+
+```text
+task1_ct:
+  DSC: 0.8575559447745198
+  HD: 4.636550899268034
+  ASD: 0.27646586441097976
+  num_cases: 30
+  missing_cases: 0
+task2_tee:
+  DSC: 0.8463245904808815
+  HD: 11.196888629485855
+  ASD: 0.6406354094949988
+  num_cases: 20
+  missing_cases: 0
+task3_vid:
+  DSC: 0.8002566624471631
+  HD: 74.19925290394785
+  ASD: 12.358669280841928
+  num_cases: 48
+  missing_cases: 0
+```
+
+判断：v37 主要验证 Task1 top200 是否能替代 v25/top100。结论是否定的。相对 v25/top100，Task1 DSC 下降 `-0.000257`，ASD 变差 `+0.002342`，只有 HD 改善 `-0.035078`；相对 v17 原始 nnU-Net best，DSC 仅提高 `+0.000017`，HD 变差 `+0.005376`，ASD 改善 `-0.002799`。这说明 top200 本地 5-fold 验证的提升没有稳定泛化到线上，新增 100 个 pseudo case 很可能引入了轻微伪标签噪声。Task1 主线应保留 v25/top100，top200 只作为 HD 稍优的对照，不作为主提交组件。
+
+Task3 分项也给出了 v36 refined 权重的线上结果：相对 v35，DSC 下降 `-0.004635`，HD 变差 `+0.411414`，ASD 变差 `+0.109766`。本地缓存概率搜索得到的 refined 权重没有线上泛化收益，因此 Task3 主线仍保留 v35 的五模型权重 `0.30/0.20/0.20/0.15/0.15, threshold=0.40`。
 
 ## v31 提交记录
 
