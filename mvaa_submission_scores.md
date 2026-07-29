@@ -1,4 +1,4 @@
-# MVAA 2026 Submission Scores v1-v38
+# MVAA 2026 Submission Scores v1-v39
 
 本文档记录已知线上评测结果。v1-v3 如果没有明确保存到对话中的完整结果，暂不补猜；从有明确结果的版本开始记录。
 
@@ -37,10 +37,11 @@
 | v32 | Task1 v25 + Task2 v19 + Task3 v30 + Cutie VOS gate | 第一版 Cutie 时序后处理验证包；Task3 HD 明确刷新当前最好，但 ASD 相比 v29/v30 变差，作为 HD 优先候选 |
 | v33 | Task1 v25 + Task2 v19 + Task3 ROI refine v1 | 第一版二阶段 ROI 高分辨率精修验证包；Task3 DSC/HD/ASD 全面明显退化，抛弃纯 ROI 替代路线 |
 | v34 | Task1 v25 + Task2 v19 + Task3 ResNet34_s49 single `threshold=0.55` | 新 ResNet34 seed 单模型验证包；HD 刷新单模型最好，但 DSC 明显低于 ensemble，不适合作为主提交 |
-| v35 | Task1 v25 + Task2 v19 + Task3 五模型 ensemble `threshold=0.40` | v15 ResNet34 + ResNet34_s49 + B4_s42 + B5_s42 + B5_s44；Task3 DSC/HD/ASD 三项全部刷新当前最好，当前主提交 |
+| v35 | Task1 v25 + Task2 v19 + Task3 五模型 ensemble `threshold=0.40` | v15 ResNet34 + ResNet34_s49 + B4_s42 + B5_s42 + B5_s44；曾经 Task3 DSC/HD/ASD 三项全部刷新最好，现作为 v39 的主体基线 |
 | v36 | Task1 v25 + Task2 v19 + Task3 refined 五模型 ensemble `threshold=0.395` | 本地缓存概率搜索得到的 v35 refined 权重；线上效果在 v37 的 Task3 分项中体现，未超过 v35 |
 | v37 | Task1 Dataset112 pseudo-top200 self-training 5fold + Task2 v19 + Task3 v36 refined | top200 线上未超过 top100/v25；HD 比 v25 改善但 DSC/ASD 下降，不建议替代 v25 Task1 |
 | v38 | Task1 v25 + Task2 v19 + Task3 v35 五模型 ensemble + connected recall rescue | Task3 DSC 刷新最高，但 HD/ASD 明显退化；说明线上 recall rescue 补召回会引入距离风险，不替代 v35 |
+| v39 | Task1 v25 + Task2 v19 + Task3 v35 五模型 ensemble + LemonFM gated branch | LemonFM 权重 `0.10`、threshold `0.36`，presence gate 只作用于 LemonFM 分支；Task3 相对 v35 三项小幅全胜，当前均衡主提交 |
 
 ## 总表
 
@@ -150,6 +151,9 @@
 | v38 | task1_ct | 0.857813 | 4.671629 | 0.274123 | 沿用 v35/v25，结果完全一致，num_cases 30，missing_cases 0 |
 | v38 | task2_tee | 0.846325 | 11.196889 | 0.640635 | 沿用 v35/v19，结果完全一致，num_cases 20，missing_cases 0 |
 | v38 | task3_vid | 0.808549 | 99.392005 | 13.441782 | v35 五模型 ensemble + connected recall rescue `base=0.35, rescue=0.25, radius=70, cap=0.25`；相对 v35，DSC `+0.003657`、HD `+25.604166`、ASD `+1.192879`，DSC 最高但距离退化 |
+| v39 | task1_ct | 0.857813 | 4.671629 | 0.274123 | 沿用 v35/v25，结果完全一致，num_cases 30，missing_cases 0 |
+| v39 | task2_tee | 0.846325 | 11.196889 | 0.640635 | 沿用 v35/v19，结果完全一致，num_cases 20，missing_cases 0 |
+| v39 | task3_vid | 0.806144 | 72.862321 | 12.207524 | v35 五模型 ensemble + LemonFM formal s52 小权重分支，权重 `0.27/0.19/0.17/0.1275/0.1425/0.10`，threshold `0.36`，presence gate 只清 LemonFM 分支；相对 v35，DSC `+0.001252`、HD `-0.925518`、ASD `-0.041379`，当前 Task3 均衡最好 |
 
 ## Task1 对比
 
@@ -198,19 +202,22 @@
 | v32 | v30 + Cutie VOS prior/gate 后处理 | 0.800005 | 88.494260 | 14.071110 | Cutie 成功大幅压低 HD，相对 v30 HD 改善 `-8.949541`、DSC 仅降 `-0.000273`，但 ASD 变差 `+0.885730`；当前 Task3 HD 最佳候选 |
 | v33 | v30 bbox + UNet++ ResNet34 ROI refine `768x1024, threshold=0.20` | 0.714739 | 107.004474 | 18.459779 | 纯 ROI 替代失败；相对 v30，DSC `-0.085540`、HD `+9.560673`、ASD `+5.274399`，抛弃该路线 |
 | v34 | UNet++ ResNet34_s49 single `threshold=0.55` | 0.749109 | 85.364217 | 14.676287 | 单模型 HD 明确改善，但 DSC 明显不足；证明 ResNet34_s49 更适合作为稳定分支而非单独提交 |
-| v35 | 五模型 ensemble `0.30*v15 + 0.20*Res34_s49 + 0.20*B4 + 0.15*B5_s42 + 0.15*B5_s44, threshold=0.40` | 0.804892 | 73.787839 | 12.248903 | 当前 Task3 全指标最优；相对 v29，DSC `+0.002706`、HD `-27.354278`、ASD `-1.049236`；相对 v30，DSC `+0.004613`、HD `-23.655962`、ASD `-0.936477` |
+| v35 | 五模型 ensemble `0.30*v15 + 0.20*Res34_s49 + 0.20*B4 + 0.15*B5_s42 + 0.15*B5_s44, threshold=0.40` | 0.804892 | 73.787839 | 12.248903 | v39 之前的 Task3 全指标最优；相对 v29，DSC `+0.002706`、HD `-27.354278`、ASD `-1.049236`；相对 v30，DSC `+0.004613`、HD `-23.655962`、ASD `-0.936477` |
 | v37 | v36 refined 五模型 ensemble `0.300*v15 + 0.275*Res34_s49 + 0.125*B4 + 0.075*B5_s42 + 0.225*B5_s44, threshold=0.395` | 0.800257 | 74.199253 | 12.358669 | refined 权重线上未超过 v35；相对 v35，DSC `-0.004635`、HD `+0.411414`、ASD `+0.109766` |
 | v38 | v35 五模型 ensemble + connected recall rescue `base=0.35, rescue=0.25, radius=70, cap=0.25` | 0.808549 | 99.392005 | 13.441782 | Task3 DSC 历史最高；相对 v35，DSC `+0.003657`，但 HD `+25.604166`、ASD `+1.192879`，说明补召回带来线上距离风险 |
+| v39 | v35 五模型 ensemble + LemonFM gated branch `0.27/0.19/0.17/0.1275/0.1425/0.10, threshold=0.36` | 0.806144 | 72.862321 | 12.207524 | 当前 Task3 均衡最优；相对 v35，DSC `+0.001252`、HD `-0.925518`、ASD `-0.041379`；相对 v38，DSC `-0.002405`，但 HD `-26.529684`、ASD `-1.234258` |
 
 ## 当前结论
 
-当前按组件最优策略，**v35 = v25 Task1 + v19 Task2 + 五模型 Task3 ensemble** 仍是主提交。v37 验证了 top200 和 v36 refined 权重：Task1 top200 相对 v25/top100 的 DSC 下降 `-0.000257`、ASD 变差 `+0.002342`，只换来 HD 改善 `-0.035078`；Task3 refined 相对 v35 的 DSC 下降 `-0.004635`，HD/ASD 也小幅变差。v38 验证了 connected recall rescue：Task3 DSC 提升到 `0.808549`，但 HD/ASD 明显退化到 `99.392005/13.441782`。因此 v37/v38 都不应替代 v35，Task1 继续保留 v25/top100，Task3 继续保留 v35 五模型权重。
+当前按组件最优策略，**v39 = v25 Task1 + v19 Task2 + v35 五模型 Task3 ensemble + LemonFM gated branch** 是新的均衡主提交。v39 相对 v35 的 Task3 三项同时改善：DSC `+0.001252`，HD `-0.925518`，ASD `-0.041379`。提升幅度不大，但方向非常干净，说明 LemonFM 分支在线上有少量互补信息，presence gate 把它限制在低风险范围内。
 
-v35 的 Task3 同时刷新 DSC、HD、ASD：相对 v29，DSC `+0.002706`、HD `-27.354278`、ASD `-1.049236`；相对 v30，DSC `+0.004613`、HD `-23.655962`、ASD `-0.936477`；相对 v32，DSC `+0.004887`、HD `-14.706421`、ASD `-1.822207`。这说明“稳定 ResNet 分支 + 受控 B4 高召回 + B5 多 seed 稳定分支”的方向比单纯 Cutie/ROI/单模型替换更有效。v38 虽然把 DSC 继续提高 `+0.003657`，但 HD 变差 `+25.604166`、ASD 变差 `+1.192879`，说明线上更低阈值的 recall rescue 会产生新的远端边界风险。
+v38 仍是当前 Task3 最高 DSC：`0.808549`，比 v39 高 `+0.002405`；但 v38 的 HD/ASD 明显更差，分别比 v39 高 `+26.529684` 和 `+1.234258`。因此如果只赌 DSC，v38 可以作为激进候选；如果按 DSC/HD/ASD 综合，v39 明显更稳，应优先作为主提交。
+
+v35 到 v39 的演进说明：五模型 ensemble 的主体仍然是最强骨架，LemonFM 不适合作为主模型，但可以作为小权重补充分支。v39 使用 `0.10` LemonFM 权重和 `0.36` threshold，相当于略微降低最终阈值并加入一小部分手术视频域特征；presence gate 只清 LemonFM 分支，不会清空最终 ensemble，因此没有像 recall rescue 那样引入明显远端风险。
 
 v34 验证了 ResNet34_s49 的角色：它单独提交时 Task3 DSC 只有 `0.749109`，明显低于 v15/v29/v30/v35，但 HD 达到 `85.364217`，比 v15 进一步改善 `-10.263111`。因此 ResNet34_s49 不适合单独主用，但非常适合作为 ensemble 中的距离稳定器。v33 证明当前第一版纯 ROI refine 替代方案不可行：相对 v30，Task3 DSC 大幅下降 `-0.085540`，HD 变差 `+9.560673`，ASD 变差 `+5.274399`，应抛弃该路线。v32 相对 v30 的 Task3 DSC 仅下降 `-0.000273`，HD 大幅改善 `-8.949541`，但 ASD 变差 `+0.885730`，说明 Cutie 确实修掉了一部分远端极端误差，但当前融合/门控可能让平均边界距离变粗。v25 证明 Task1 自训练有效：相对 v17/v19，Task1 DSC 提高 `+0.000274`，ASD 改善 `-0.005141`，但 HD 增加 `+0.040455`；相对 v16，DSC 提高 `+0.000473`，ASD 改善 `-0.003942`，但 HD 增加 `+0.088447`。因此如果按 DSC/ASD 优先，Task1 应切到 v25；如果极端重视 HD，Task1 仍可保留 v16。
 
-当前已提交的完整包里，v35 是新的 Task3 和整体主提交；v29/v30 退为历史强基线，v32 是 Cutie 方向的 HD 对照包，v34 是 ResNet34_s49 单模型定位实验，v33 是 ROI refine 失败包。下一步 Task3 优化应围绕 v35 做小范围权重/threshold 搜索，或等 multiclass 模型完成后测试是否能作为 line-aware 分支加入 v35。
+当前已提交的完整包里，v39 是新的 Task3 和整体均衡主提交；v35 退为最重要的主体基线，v38 是 DSC 激进候选，v29/v30 是历史强基线，v32 是 Cutie 方向的 HD 对照包，v34 是 ResNet34_s49 单模型定位实验，v33 是 ROI refine 失败包。下一步 Task3 优化应围绕 v39 做小范围 LemonFM 权重/threshold 搜索，或等 multiclass 模型完成后测试是否能作为 line-aware 分支加入 v39。
 
 当前 v23 完整包线上结果：
 

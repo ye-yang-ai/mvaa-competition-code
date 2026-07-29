@@ -28,6 +28,7 @@ from evaluate_task3_postprocess_grid import (  # noqa: E402
     postprocess_binary,
     write_csv,
 )
+from generate_task3_predictions import load_presence_gate  # noqa: E402
 from train import predict_probs  # noqa: E402
 from utils import MetricRefs, metric_quality_weighted, seed_everything  # noqa: E402
 
@@ -49,6 +50,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tta", action="store_true", default=True)
     parser.add_argument("--no-tta", action="store_false", dest="tta")
     parser.add_argument("--reuse-cache", action="store_true", default=False)
+    parser.add_argument(
+        "--presence-gate-ckpt",
+        type=Path,
+        default=None,
+        help="Optional frame-level presence gate checkpoint. Applies only to selected model probability caches.",
+    )
+    parser.add_argument("--presence-gate-threshold", type=float, default=-1.0)
+    parser.add_argument(
+        "--presence-gate-model-indices",
+        type=int,
+        nargs="*",
+        default=[],
+        help="0-based model indices gated by presence; defaults to the last model when a gate is provided.",
+    )
+    parser.add_argument("--presence-gate-tta", action="store_true", default=True)
+    parser.add_argument("--no-presence-gate-tta", action="store_false", dest="presence_gate_tta")
     parser.add_argument(
         "--weight-grid",
         nargs="+",
@@ -90,6 +107,19 @@ def write_json(path: Path, data: dict) -> None:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
+def resolve_presence_gate_indices(args: argparse.Namespace, n_models: int) -> set[int]:
+    if args.presence_gate_ckpt is None:
+        return set()
+    raw_indices = list(args.presence_gate_model_indices)
+    if not raw_indices:
+        raw_indices = [n_models - 1]
+    indices = {int(i) for i in raw_indices}
+    bad = sorted(i for i in indices if i < 0 or i >= n_models)
+    if bad:
+        raise ValueError(f"--presence-gate-model-indices out of range for {n_models} models: {bad}")
+    return indices
+
+
 def read_cache(cache_dir: Path, n_models: int) -> dict | None:
     required = [cache_dir / f"probs_{i}.npy" for i in range(n_models)]
     required.extend([cache_dir / "labels.npy", cache_dir / "metadata.json"])
@@ -126,6 +156,34 @@ def collect_model_probs(
         probs_list.append(probs.float().cpu().numpy()[:, 0])
         print(f"[collect] {batch_idx}/{len(loader)} size={image_size}")
     return np.concatenate(probs_list, axis=0).astype(np.float32)
+
+
+@torch.no_grad()
+def collect_presence_gate_probs(
+    args: argparse.Namespace,
+    loader: DataLoader,
+    device: torch.device,
+    use_amp: bool,
+    gate_size: tuple[int, int],
+) -> tuple[np.ndarray, float]:
+    gate_model, gate_threshold, predict_fn = load_presence_gate(
+        args.presence_gate_ckpt,
+        device=device,
+        threshold_override=float(args.presence_gate_threshold),
+    )
+    probs_list: list[np.ndarray] = []
+    for batch_idx, batch in enumerate(loader, start=1):
+        images = batch["image"].to(device, non_blocking=True)
+        x = F.interpolate(images, size=gate_size, mode="bilinear", align_corners=False)
+        probs = predict_fn(
+            gate_model,
+            x,
+            use_amp=use_amp,
+            use_tta=bool(args.presence_gate_tta),
+        )
+        probs_list.append(probs.float().cpu().numpy())
+        print(f"[presence-gate] {batch_idx}/{len(loader)} size={gate_size}")
+    return np.concatenate(probs_list, axis=0).astype(np.float32), float(gate_threshold)
 
 
 def build_cache(args: argparse.Namespace, device: torch.device) -> dict:
@@ -187,6 +245,38 @@ def build_cache(args: argparse.Namespace, device: torch.device) -> dict:
         print(f"[cache] collect {name}")
         probs.append(collect_model_probs(model, train_args, loader, device, use_amp=use_amp, use_tta=bool(args.tta)))
 
+    gated_model_indices = resolve_presence_gate_indices(args, n_models=len(args.ckpts))
+    presence_gate_metadata = None
+    if args.presence_gate_ckpt is not None:
+        first_gated = min(gated_model_indices)
+        gate_size = tuple(int(v) for v in train_args_list[first_gated].get("image_size", [448, 800]))
+        gate_probs, gate_threshold = collect_presence_gate_probs(
+            args,
+            loader=loader,
+            device=device,
+            use_amp=use_amp,
+            gate_size=gate_size,
+        )
+        gate_keep = gate_probs >= float(gate_threshold)
+        for model_idx in sorted(gated_model_indices):
+            print(
+                "[presence-gate] apply "
+                f"model={args.names[model_idx]} idx={model_idx} clear={int((~gate_keep).sum())}/{len(gate_keep)}"
+            )
+            probs[model_idx] = probs[model_idx].copy()
+            probs[model_idx][~gate_keep] = 0.0
+        presence_gate_metadata = {
+            "ckpt": str(args.presence_gate_ckpt),
+            "threshold": float(gate_threshold),
+            "model_indices": sorted(gated_model_indices),
+            "model_names": [str(args.names[i]) for i in sorted(gated_model_indices)],
+            "size": list(gate_size),
+            "tta": bool(args.presence_gate_tta),
+            "cleared_frames": int((~gate_keep).sum()),
+            "kept_frames": int(gate_keep.sum()),
+            "num_frames": int(len(gate_keep)),
+        }
+
     metadata = {
         "ckpts": [str(p) for p in args.ckpts],
         "names": [str(n) for n in args.names],
@@ -202,6 +292,7 @@ def build_cache(args: argparse.Namespace, device: torch.device) -> dict:
         "val_video_count": int(args.val_video_count),
         "use_amp": use_amp,
         "use_tta": bool(args.tta),
+        "presence_gate": presence_gate_metadata,
     }
     cache_dir.mkdir(parents=True, exist_ok=True)
     for i, arr in enumerate(probs):

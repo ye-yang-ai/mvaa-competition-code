@@ -47,6 +47,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--amp", action="store_true", default=AMP)
     parser.add_argument("--no-amp", action="store_false", dest="amp")
     parser.add_argument("--threshold", type=float, default=None, help="Override checkpoint validation threshold")
+    parser.add_argument("--presence-gate-ckpt", type=Path, default=None)
+    parser.add_argument("--presence-gate-threshold", type=float, default=-1.0)
+    parser.add_argument("--presence-gate-tta", action="store_true", default=True)
+    parser.add_argument("--no-presence-gate-tta", action="store_false", dest="presence_gate_tta")
     parser.add_argument("--postprocess", action="store_true", default=False)
     parser.add_argument("--post-min-area", type=int, default=0)
     parser.add_argument(
@@ -129,6 +133,44 @@ def load_state_dict(model: torch.nn.Module, ckpt_obj: Dict) -> None:
     model.load_state_dict(state, strict=True)
 
 
+def load_presence_gate(
+    gate_ckpt_path: Path,
+    device: torch.device,
+    threshold_override: float,
+):
+    from train_presence_gate import LemonFMPresenceClassifier, predict_presence_probs
+
+    if not gate_ckpt_path.exists():
+        raise FileNotFoundError(f"Presence gate checkpoint not found: {gate_ckpt_path}")
+    ckpt = torch.load(gate_ckpt_path, map_location="cpu")
+    gate_args = ckpt.get("args", {}) if isinstance(ckpt, dict) else {}
+    if not isinstance(gate_args, dict):
+        gate_args = {}
+    lemonfm_ckpt = gate_args.get(
+        "lemonfm_ckpt",
+        str(THIS_DIR.parent / "checkpoints" / "pretrained" / "lemonfm" / "lemonfm.pth"),
+    )
+    model = LemonFMPresenceClassifier(
+        pretrained_weights=lemonfm_ckpt,
+        dropout=float(gate_args.get("dropout", 0.2)),
+        hidden_dim=int(gate_args.get("hidden_dim", 0)),
+    ).to(device)
+    if "model_state" in ckpt:
+        state = ckpt["model_state"]
+    elif "state_dict" in ckpt:
+        state = ckpt["state_dict"]
+    else:
+        state = ckpt
+    model.load_state_dict(state, strict=True)
+    model.eval()
+
+    if float(threshold_override) >= 0.0:
+        threshold = float(threshold_override)
+    else:
+        threshold = float(ckpt.get("gate_threshold", ckpt.get("metrics", {}).get("threshold", 0.5)))
+    return model, threshold, predict_presence_probs
+
+
 def postprocess_mask(
     mask: np.ndarray,
     min_area: int,
@@ -197,6 +239,8 @@ def main() -> int:
     encoder_weights = train_args.get("encoder_weights", None)
     if isinstance(encoder_weights, str) and encoder_weights.lower() == "none":
         encoder_weights = None
+    lemonfm_ckpt = train_args.get("lemonfm_ckpt", None)
+    lemonfm_decoder_channels = int(train_args.get("lemonfm_decoder_channels", 128))
 
     image_size = tuple(int(v) for v in train_args.get("image_size", [448, 800]))
     use_imagenet_norm = bool(train_args.get("use_imagenet_norm", True))
@@ -214,9 +258,21 @@ def main() -> int:
         encoder_weights=encoder_weights,
         in_channels=3,
         classes=1,
+        lemonfm_ckpt=lemonfm_ckpt,
+        lemonfm_decoder_channels=lemonfm_decoder_channels,
     ).to(device)
     load_state_dict(model, ckpt)
     model.eval()
+
+    presence_gate = None
+    presence_gate_threshold = None
+    presence_predict_fn = None
+    if args.presence_gate_ckpt is not None:
+        presence_gate, presence_gate_threshold, presence_predict_fn = load_presence_gate(
+            args.presence_gate_ckpt,
+            device=device,
+            threshold_override=float(args.presence_gate_threshold),
+        )
 
     norm_mean = torch.tensor(IMAGENET_MEAN, dtype=torch.float32).view(1, 3, 1, 1).to(device)
     norm_std = torch.tensor(IMAGENET_STD, dtype=torch.float32).view(1, 3, 1, 1).to(device)
@@ -226,6 +282,12 @@ def main() -> int:
     print(f"Input images: {len(files)}")
     print(f"Save labels to: {pred_dir}")
     print(f"Threshold: {threshold:.4f} (ckpt={ckpt_threshold:.4f}) | TTA={args.tta}")
+    if presence_gate is not None:
+        print(
+            "Presence gate: "
+            f"ckpt={args.presence_gate_ckpt}, threshold={presence_gate_threshold:.4f}, "
+            f"TTA={args.presence_gate_tta}"
+        )
     print(
         "Postprocess: "
         f"enabled={args.postprocess}, min_area={args.post_min_area}, "
@@ -254,6 +316,17 @@ def main() -> int:
         pred_small = (probs > threshold).float()
         pred_orig = F.interpolate(pred_small, size=(h, w), mode="nearest")
         pred_mask = (pred_orig[0, 0].detach().cpu().numpy() > 0.5).astype(np.uint8)
+        presence_prob = None
+        if presence_gate is not None:
+            gate_probs = presence_predict_fn(
+                presence_gate,
+                image_t,
+                use_amp=use_amp,
+                use_tta=bool(args.presence_gate_tta),
+            )
+            presence_prob = float(gate_probs[0].detach().cpu().item())
+            if presence_prob < float(presence_gate_threshold):
+                pred_mask = np.zeros_like(pred_mask, dtype=np.uint8)
         if args.postprocess:
             pred_mask = postprocess_mask(
                 pred_mask,
@@ -275,7 +348,10 @@ def main() -> int:
                 "segmentation": save_path.relative_to(output_json.parent).as_posix(),
             }
         )
-        print(f"[predict] {idx}/{total} -> {save_path.name}")
+        if presence_prob is None:
+            print(f"[predict] {idx}/{total} -> {save_path.name}")
+        else:
+            print(f"[predict] {idx}/{total} gate={presence_prob:.4f} -> {save_path.name}")
 
     # Keep submission JSON minimal and evaluator-friendly.
     result = {"cases": records}

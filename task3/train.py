@@ -55,10 +55,16 @@ def parse_args() -> argparse.Namespace:
         "--arch",
         type=str,
         default="unetplusplus",
-        choices=["unet", "unetplusplus", "fpn", "deeplabv3plus", "segformer"],
+        choices=["unet", "unetplusplus", "fpn", "deeplabv3plus", "segformer", "lemonfm_fpn"],
     )
     parser.add_argument("--encoder-name", type=str, default="efficientnet-b4")
     parser.add_argument("--encoder-weights", type=str, default="none", choices=["none", "imagenet"])
+    parser.add_argument(
+        "--lemonfm-ckpt",
+        type=str,
+        default=str(THIS_DIR.parent / "checkpoints" / "pretrained" / "lemonfm" / "lemonfm.pth"),
+    )
+    parser.add_argument("--lemonfm-decoder-channels", type=int, default=128)
     parser.add_argument("--target-label", type=int, default=10)
     parser.add_argument("--image-size", type=int, nargs=2, default=[448, 800], help="H W")
 
@@ -74,6 +80,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-unlabeled-samples", type=int, default=0, help="Debug only; 0 means all")
 
     parser.add_argument("--lr", type=float, default=2e-4)
+    parser.add_argument("--encoder-lr", type=float, default=0.0, help="Optional encoder LR for models exposing encoder_parameters().")
+    parser.add_argument("--decoder-lr", type=float, default=0.0, help="Optional decoder LR for models exposing decoder_parameters().")
+    parser.add_argument("--freeze-encoder", action="store_true", default=False)
+    parser.add_argument(
+        "--encoder-unfreeze-tail",
+        type=int,
+        default=0,
+        help="After freezing the encoder, unfreeze the last N encoder modules when supported.",
+    )
     parser.add_argument("--weight-decay", type=float, default=1e-5)
     parser.add_argument("--min-lr", type=float, default=1e-6)
     parser.add_argument("--warmup-epochs", type=int, default=5)
@@ -89,6 +104,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--boundary-loss-weight", type=float, default=0.0)
     parser.add_argument("--boundary-kernel-size", type=int, default=3)
     parser.add_argument("--boundary-dilate-iters", type=int, default=2)
+    parser.add_argument("--empty-loss-weight", type=float, default=0.0)
+    parser.add_argument("--empty-loss-topk-frac", type=float, default=0.01)
+    parser.add_argument("--empty-loss-topk-weight", type=float, default=0.5)
 
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--print-freq", type=int, default=20)
@@ -141,6 +159,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fg-sampling-power", type=float, default=0.5)
     parser.add_argument("--fg-sampling-min-weight", type=float, default=0.5)
     parser.add_argument("--fg-sampling-max-weight", type=float, default=4.0)
+    parser.add_argument("--empty-frame-weight", type=float, default=1.0)
     parser.add_argument("--hard-frame-csv", type=str, default="")
     parser.add_argument("--hard-frame-weight", type=float, default=3.0)
     parser.add_argument("--init-ckpt", type=str, default="")
@@ -351,6 +370,61 @@ def update_ema(teacher, student, decay: float) -> None:
             t_buf.copy_(s_buf)
 
 
+def configure_trainable_parameters(model: torch.nn.Module, args: argparse.Namespace, logger) -> None:
+    tail = max(0, int(args.encoder_unfreeze_tail))
+    if not hasattr(model, "encoder_parameters"):
+        if tail > 0:
+            logger.warning("--encoder-unfreeze-tail=%d ignored because model exposes no encoder_parameters().", tail)
+        return
+
+    if bool(args.freeze_encoder) or tail > 0:
+        for p in model.encoder_parameters():
+            p.requires_grad_(False)
+        if tail > 0:
+            if hasattr(model, "set_encoder_tail_trainable"):
+                names = model.set_encoder_tail_trainable(tail)
+                logger.info("Encoder selective unfreeze: tail=%d modules=%s", tail, names)
+            else:
+                logger.warning(
+                    "--encoder-unfreeze-tail=%d requested, but model does not support selective unfreeze.",
+                    tail,
+                )
+
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    encoder_params = sum(p.numel() for p in model.encoder_parameters())
+    trainable_encoder_params = sum(p.numel() for p in model.encoder_parameters() if p.requires_grad)
+    logger.info(
+        "Trainable params: total=%d trainable=%d encoder=%d trainable_encoder=%d",
+        total_params,
+        trainable_params,
+        encoder_params,
+        trainable_encoder_params,
+    )
+
+
+def build_optimizer(model: torch.nn.Module, args: argparse.Namespace) -> torch.optim.Optimizer:
+
+    if hasattr(model, "encoder_parameters") and hasattr(model, "decoder_parameters"):
+        encoder_lr = float(args.encoder_lr) if float(args.encoder_lr) > 0 else float(args.lr)
+        decoder_lr = float(args.decoder_lr) if float(args.decoder_lr) > 0 else float(args.lr)
+        encoder_params = [p for p in model.encoder_parameters() if p.requires_grad]
+        decoder_params = [p for p in model.decoder_parameters() if p.requires_grad]
+        groups = []
+        if encoder_params:
+            groups.append({"params": encoder_params, "lr": encoder_lr})
+        if decoder_params:
+            groups.append({"params": decoder_params, "lr": decoder_lr})
+        if groups:
+            return torch.optim.AdamW(groups, lr=float(args.lr), weight_decay=float(args.weight_decay))
+
+    return torch.optim.AdamW(
+        [p for p in model.parameters() if p.requires_grad],
+        lr=float(args.lr),
+        weight_decay=float(args.weight_decay),
+    )
+
+
 def compute_unsup_weight(epoch: int, semi_warmup_epochs: int, unsup_weight: float, ramp_epochs: int) -> float:
     if epoch <= semi_warmup_epochs:
         return 0.0
@@ -417,6 +491,29 @@ def boundary_bce_loss(
         return logits.new_tensor(0.0)
     bce = torch.nn.functional.binary_cross_entropy_with_logits(logits, labels, reduction="none")
     return bce[valid].mean()
+
+
+def empty_frame_fp_loss(
+    logits: torch.Tensor,
+    labels: torch.Tensor,
+    topk_frac: float = 0.01,
+    topk_weight: float = 0.5,
+) -> torch.Tensor:
+    labels = labels.float()
+    empty = labels.flatten(1).sum(dim=1) <= 0
+    if not bool(empty.any()):
+        return logits.new_tensor(0.0)
+
+    probs = torch.sigmoid(logits[empty].float())
+    mean_loss = probs.mean()
+
+    frac = float(topk_frac)
+    if frac <= 0 or float(topk_weight) <= 0:
+        return mean_loss
+    flat = probs.flatten(1)
+    k = max(1, min(flat.shape[1], int(round(flat.shape[1] * frac))))
+    topk_loss = torch.topk(flat, k=k, dim=1).values.mean()
+    return mean_loss + float(topk_weight) * topk_loss
 
 
 def temporal_consistency_loss(
@@ -555,14 +652,25 @@ def main() -> int:
     hard_train_count = sum(1 for s in train_samples if s.image_path.stem in hard_frame_ids)
     hard_val_count = sum(1 for s in val_samples_all if s.image_path.stem in hard_frame_ids)
 
+    empty_train_count = sum(1 for r in train_ds.sample_fg_ratio if float(r) <= 1e-6)
     train_sampler = None
-    if (args.use_fg_balanced_sampling or hard_frame_ids) and len(train_ds) > 0:
+    if (
+        args.use_fg_balanced_sampling
+        or hard_frame_ids
+        or abs(float(args.empty_frame_weight) - 1.0) > 1e-9
+    ) and len(train_ds) > 0:
         weights = build_fg_balanced_weights(
             train_ds.sample_fg_ratio,
             power=float(args.fg_sampling_power),
             min_weight=float(args.fg_sampling_min_weight),
             max_weight=float(args.fg_sampling_max_weight),
         ) if args.use_fg_balanced_sampling else torch.ones(len(train_ds), dtype=torch.double)
+        if abs(float(args.empty_frame_weight) - 1.0) > 1e-9:
+            empty_mult = torch.ones(len(train_ds), dtype=torch.double)
+            for idx, ratio in enumerate(train_ds.sample_fg_ratio):
+                if float(ratio) <= 1e-6:
+                    empty_mult[idx] = float(args.empty_frame_weight)
+            weights = weights * empty_mult
         if hard_frame_ids and float(args.hard_frame_weight) > 0:
             hard_mult = torch.ones(len(train_ds), dtype=torch.double)
             for idx, sample in enumerate(train_samples):
@@ -665,13 +773,17 @@ def main() -> int:
         val_video_ids,
     )
     logger.info(
-        "Hard frames: csv=%s ids=%d train_hits=%d val_hits=%d hard_weight=%.3f boundary_weight=%.3f",
+        "Hard/empty frames: csv=%s ids=%d train_hits=%d val_hits=%d hard_weight=%.3f "
+        "empty_train=%d empty_frame_weight=%.3f boundary_weight=%.3f empty_loss_weight=%.3f",
         args.hard_frame_csv or "",
         len(hard_frame_ids),
         hard_train_count,
         hard_val_count,
         float(args.hard_frame_weight),
+        empty_train_count,
+        float(args.empty_frame_weight),
         float(args.boundary_loss_weight),
+        float(args.empty_loss_weight),
     )
     logger.info(
         "Temporal consistency: weight=%.4f batch=%d max_gap=%d conf_thr=%.3f area_jump_thr=%.3f pairs=%d",
@@ -690,13 +802,24 @@ def main() -> int:
         encoder_weights=encoder_weights,
         in_channels=3,
         classes=1,
+        lemonfm_ckpt=args.lemonfm_ckpt,
+        lemonfm_decoder_channels=int(args.lemonfm_decoder_channels),
     ).to(device)
     load_checkpoint_state(model, args.init_ckpt, logger)
+    configure_trainable_parameters(model, args, logger)
 
-    teacher = copy.deepcopy(model).to(device)
-    teacher.eval()
-    for p in teacher.parameters():
-        p.requires_grad_(False)
+    needs_teacher = (
+        float(args.unsup_weight) > 0.0
+        and unl_loader is not None
+    ) or (
+        float(args.temporal_consistency_weight) > 0.0
+        and temporal_loader is not None
+    )
+    teacher = copy.deepcopy(model).to(device) if needs_teacher else None
+    if teacher is not None:
+        teacher.eval()
+        for p in teacher.parameters():
+            p.requires_grad_(False)
 
     sup_loss_fn = get_loss_fn(
         loss_type=args.loss_type,
@@ -712,7 +835,7 @@ def main() -> int:
 
     unsup_bce = torch.nn.BCEWithLogitsLoss(reduction="none")
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=float(args.lr), weight_decay=float(args.weight_decay))
+    optimizer = build_optimizer(model, args)
     warmup_epochs = max(0, min(int(args.warmup_epochs), max(0, int(args.epochs) - 1)))
     if warmup_epochs > 0:
         warmup = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=0.2, end_factor=1.0, total_iters=warmup_epochs)
@@ -797,7 +920,8 @@ def main() -> int:
     for epoch in range(1, int(args.epochs) + 1):
         epoch_start = time.time()
         model.train()
-        teacher.eval()
+        if teacher is not None:
+            teacher.eval()
 
         lambda_u = compute_unsup_weight(
             epoch=epoch,
@@ -806,10 +930,14 @@ def main() -> int:
             ramp_epochs=int(args.unsup_ramp_epochs),
         )
         lambda_t = float(args.temporal_consistency_weight) if epoch >= int(args.temporal_start_epoch) else 0.0
+        if teacher is None:
+            lambda_u = 0.0
+            lambda_t = 0.0
 
         sup_loss_sum = 0.0
         unsup_loss_sum = 0.0
         temporal_loss_sum = 0.0
+        empty_loss_sum = 0.0
         total_loss_sum = 0.0
         train_dice_sum = 0.0
         pseudo_pos_ratio_sum = 0.0
@@ -840,6 +968,15 @@ def main() -> int:
                         dilate_iters=int(args.boundary_dilate_iters),
                     )
                     sup_loss = sup_loss + float(args.boundary_loss_weight) * b_loss
+                empty_loss = torch.tensor(0.0, dtype=torch.float32, device=device)
+                if float(args.empty_loss_weight) > 0:
+                    empty_loss = empty_frame_fp_loss(
+                        logits_sup,
+                        labels,
+                        topk_frac=float(args.empty_loss_topk_frac),
+                        topk_weight=float(args.empty_loss_topk_weight),
+                    )
+                    sup_loss = sup_loss + float(args.empty_loss_weight) * empty_loss
             with torch.no_grad():
                 batch_train_dice = dice_from_logits(logits_sup, labels, ignore_empty_gt=True)
 
@@ -921,11 +1058,13 @@ def main() -> int:
                     torch.nn.utils.clip_grad_norm_(model.parameters(), float(args.grad_clip_norm))
                 optimizer.step()
 
-            update_ema(teacher, model, decay=float(args.ema_decay))
+            if teacher is not None:
+                update_ema(teacher, model, decay=float(args.ema_decay))
 
             sup_loss_sum += float(sup_loss.item())
             unsup_loss_sum += float(unsup_loss.item())
             temporal_loss_sum += float(temporal_loss.item())
+            empty_loss_sum += float(empty_loss.item())
             total_loss_sum += float(total_loss.item())
             train_dice_sum += float(batch_train_dice)
             pseudo_pos_ratio_sum += pseudo_pos_ratio
@@ -936,13 +1075,14 @@ def main() -> int:
 
             if int(args.print_freq) > 0 and (step % int(args.print_freq) == 0 or step == num_steps):
                 logger.info(
-                    "Epoch %d Step %d/%d | lambda_u=%.3f lambda_t=%.3f | sup=%.4f unsup=%.4f temporal=%.4f total=%.4f | pseudo_pos=%.4f conf=%.4f temporal_valid=%.4f area_jump=%.4f",
+                    "Epoch %d Step %d/%d | lambda_u=%.3f lambda_t=%.3f | sup=%.4f empty=%.4f unsup=%.4f temporal=%.4f total=%.4f | pseudo_pos=%.4f conf=%.4f temporal_valid=%.4f area_jump=%.4f",
                     epoch,
                     step,
                     num_steps,
                     lambda_u,
                     lambda_t,
                     sup_loss_sum / max(1, steps),
+                    empty_loss_sum / max(1, steps),
                     unsup_loss_sum / max(1, steps),
                     temporal_loss_sum / max(1, steps),
                     total_loss_sum / max(1, steps),
@@ -1008,7 +1148,7 @@ def main() -> int:
                 {
                     "epoch": epoch,
                     "model_state": model.state_dict(),
-                    "teacher_state": teacher.state_dict(),
+                    "teacher_state": teacher.state_dict() if teacher is not None else None,
                     "optimizer_state": optimizer.state_dict(),
                     "scheduler_state": scheduler.state_dict(),
                     "args": vars(args),
@@ -1025,7 +1165,7 @@ def main() -> int:
             {
                 "epoch": epoch,
                 "model_state": model.state_dict(),
-                "teacher_state": teacher.state_dict(),
+                "teacher_state": teacher.state_dict() if teacher is not None else None,
                 "optimizer_state": optimizer.state_dict(),
                 "scheduler_state": scheduler.state_dict(),
                 "args": vars(args),
@@ -1041,7 +1181,7 @@ def main() -> int:
                 {
                     "epoch": epoch,
                     "model_state": model.state_dict(),
-                    "teacher_state": teacher.state_dict(),
+                    "teacher_state": teacher.state_dict() if teacher is not None else None,
                     "optimizer_state": optimizer.state_dict(),
                     "scheduler_state": scheduler.state_dict(),
                     "args": vars(args),
@@ -1083,12 +1223,13 @@ def main() -> int:
             )
 
         logger.info(
-            "Epoch %d/%d | lambda_u=%.3f lambda_t=%.3f | train(sup/unsup/temporal/total)=%.4f/%.4f/%.4f/%.4f train_dice=%.4f | val_loss=%.4f val_dice=%.4f all_dice=%.4f val_hd=%s val_asd=%s thr=%.2f pred_pos=%.4f gt_pos=%.4f empty_fp=%d/%d(%.3f) fg_miss=%d/%d(%.3f) dist_n=%d | score=%.4f best=%.4f(epoch=%d) | ext_dice=%s | lr=%.6g | %.1fs",
+            "Epoch %d/%d | lambda_u=%.3f lambda_t=%.3f | train(sup/empty/unsup/temporal/total)=%.4f/%.4f/%.4f/%.4f/%.4f train_dice=%.4f | val_loss=%.4f val_dice=%.4f all_dice=%.4f val_hd=%s val_asd=%s thr=%.2f pred_pos=%.4f gt_pos=%.4f empty_fp=%d/%d(%.3f) fg_miss=%d/%d(%.3f) dist_n=%d | score=%.4f best=%.4f(epoch=%d) | ext_dice=%s | lr=%.6g | %.1fs",
             epoch,
             int(args.epochs),
             lambda_u,
             lambda_t,
             sup_loss_sum / max(1, steps),
+            empty_loss_sum / max(1, steps),
             unsup_loss_sum / max(1, steps),
             temporal_loss_sum / max(1, steps),
             total_loss_sum / max(1, steps),

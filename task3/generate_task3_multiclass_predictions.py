@@ -99,6 +99,8 @@ def main() -> int:
     encoder_weights = train_args.get("encoder_weights", None)
     if isinstance(encoder_weights, str) and encoder_weights.lower() == "none":
         encoder_weights = None
+    lemonfm_ckpt = train_args.get("lemonfm_ckpt", None)
+    lemonfm_decoder_channels = int(train_args.get("lemonfm_decoder_channels", 128))
     image_size = tuple(int(v) for v in train_args.get("image_size", [448, 800]))
     num_classes = int(train_args.get("num_classes", 5))
     use_imagenet_norm = bool(train_args.get("use_imagenet_norm", True))
@@ -121,6 +123,8 @@ def main() -> int:
         encoder_weights=encoder_weights,
         in_channels=3,
         classes=num_classes,
+        lemonfm_ckpt=lemonfm_ckpt,
+        lemonfm_decoder_channels=lemonfm_decoder_channels,
     ).to(device)
     load_state_dict(model, ckpt)
     model.eval()

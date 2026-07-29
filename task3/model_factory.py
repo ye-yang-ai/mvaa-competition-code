@@ -9,6 +9,7 @@ import re
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision
 
 try:
     import segmentation_models_pytorch as smp
@@ -41,6 +42,140 @@ LOCAL_SMP_WEIGHTS = {
     / "tu-convnext_tiny.fb_in1k"
     / "model.safetensors",
 }
+DEFAULT_LEMONFM_CKPT = REPO_ROOT / "checkpoints" / "pretrained" / "lemonfm" / "lemonfm.pth"
+
+
+def _group_norm(num_channels: int) -> nn.GroupNorm:
+    groups = min(32, int(num_channels))
+    while int(num_channels) % groups != 0 and groups > 1:
+        groups -= 1
+    return nn.GroupNorm(groups, int(num_channels))
+
+
+class ConvNormAct(nn.Sequential):
+    def __init__(self, in_channels: int, out_channels: int, kernel_size: int = 3) -> None:
+        padding = int(kernel_size) // 2
+        super().__init__(
+            nn.Conv2d(int(in_channels), int(out_channels), kernel_size=kernel_size, padding=padding, bias=False),
+            _group_norm(int(out_channels)),
+            nn.GELU(),
+        )
+
+
+class LemonFMConvNeXtLargeFPN(nn.Module):
+    """LemonFM ConvNeXt-Large encoder with a lightweight FPN decoder."""
+
+    encoder_channels = (192, 384, 768, 1536)
+
+    def __init__(
+        self,
+        pretrained_weights: str | Path | None = DEFAULT_LEMONFM_CKPT,
+        in_channels: int = 3,
+        classes: int = 1,
+        decoder_channels: int = 128,
+    ) -> None:
+        super().__init__()
+        if int(in_channels) != 3:
+            raise ValueError("LemonFM ConvNeXt-Large expects RGB input with in_channels=3.")
+
+        base = torchvision.models.convnext_large(weights=None)
+        base.classifier[2] = nn.Identity()
+        if pretrained_weights is not None:
+            self._load_lemonfm_weights(base, Path(pretrained_weights))
+
+        self.backbone = base.features
+        c = int(decoder_channels)
+        self.lateral_convs = nn.ModuleList(
+            [nn.Conv2d(ch, c, kernel_size=1) for ch in self.encoder_channels]
+        )
+        self.smooth_convs = nn.ModuleList([ConvNormAct(c, c, kernel_size=3) for _ in self.encoder_channels])
+        self.seg_head = nn.Sequential(
+            ConvNormAct(c * 4, c, kernel_size=3),
+            nn.Conv2d(c, int(classes), kernel_size=1),
+        )
+
+    @staticmethod
+    def _load_lemonfm_weights(base: nn.Module, weights_path: Path) -> None:
+        if not weights_path.exists():
+            raise FileNotFoundError(f"LemonFM checkpoint not found: {weights_path}")
+        ckpt = torch.load(weights_path, map_location="cpu")
+        if not isinstance(ckpt, dict) or "teacher" not in ckpt:
+            raise ValueError(f"LemonFM checkpoint must contain a 'teacher' state dict: {weights_path}")
+        state_dict = {
+            k.replace("backbone.", "", 1): v
+            for k, v in ckpt["teacher"].items()
+            if k.startswith("backbone.")
+        }
+        msg = base.load_state_dict(state_dict, strict=False)
+        if msg.missing_keys or msg.unexpected_keys:
+            raise RuntimeError(
+                "Failed to load LemonFM backbone exactly: "
+                f"missing={msg.missing_keys[:10]} unexpected={msg.unexpected_keys[:10]}"
+            )
+
+    def encoder_parameters(self):
+        return self.backbone.parameters()
+
+    def decoder_parameters(self):
+        for module in (self.lateral_convs, self.smooth_convs, self.seg_head):
+            yield from module.parameters()
+
+    def set_encoder_tail_trainable(self, tail_modules: int) -> list[str]:
+        """Freeze the encoder, then unfreeze the last N ConvNeXt feature modules."""
+        n_tail = max(0, int(tail_modules))
+        for p in self.encoder_parameters():
+            p.requires_grad_(False)
+        if n_tail <= 0:
+            return []
+
+        modules = list(self.backbone.children())
+        start = max(0, len(modules) - n_tail)
+        names = []
+        for idx, module in enumerate(modules[start:], start=start):
+            for p in module.parameters():
+                p.requires_grad_(True)
+            names.append(f"backbone[{idx}]")
+        return names
+
+    def _encoder_features(self, x: torch.Tensor) -> list[torch.Tensor]:
+        x = self.backbone[0](x)
+        x = self.backbone[1](x)
+        f1 = x
+        x = self.backbone[2](x)
+        x = self.backbone[3](x)
+        f2 = x
+        x = self.backbone[4](x)
+        x = self.backbone[5](x)
+        f3 = x
+        x = self.backbone[6](x)
+        x = self.backbone[7](x)
+        f4 = x
+        return [f1, f2, f3, f4]
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        out_size = tuple(int(v) for v in x.shape[-2:])
+        feats = self._encoder_features(x)
+        laterals = [conv(feat) for conv, feat in zip(self.lateral_convs, feats)]
+
+        p4 = laterals[3]
+        p3 = laterals[2] + F.interpolate(p4, size=laterals[2].shape[-2:], mode="bilinear", align_corners=False)
+        p2 = laterals[1] + F.interpolate(p3, size=laterals[1].shape[-2:], mode="bilinear", align_corners=False)
+        p1 = laterals[0] + F.interpolate(p2, size=laterals[0].shape[-2:], mode="bilinear", align_corners=False)
+
+        pyramid = [p1, p2, p3, p4]
+        pyramid = [smooth(feat) for smooth, feat in zip(self.smooth_convs, pyramid)]
+        target = pyramid[0].shape[-2:]
+        fused = torch.cat(
+            [
+                pyramid[0],
+                F.interpolate(pyramid[1], size=target, mode="bilinear", align_corners=False),
+                F.interpolate(pyramid[2], size=target, mode="bilinear", align_corners=False),
+                F.interpolate(pyramid[3], size=target, mode="bilinear", align_corners=False),
+            ],
+            dim=1,
+        )
+        logits = self.seg_head(fused)
+        return F.interpolate(logits, size=out_size, mode="bilinear", align_corners=False)
 
 
 if TimmUniversalEncoder is not None:
@@ -117,14 +252,24 @@ def get_model(
     encoder_weights: str | None = None,
     in_channels: int = 3,
     classes: int = 1,
+    lemonfm_ckpt: str | Path | None = DEFAULT_LEMONFM_CKPT,
+    lemonfm_decoder_channels: int = 128,
 ):
+    arch = arch.lower()
+    if arch == "lemonfm_fpn":
+        return LemonFMConvNeXtLargeFPN(
+            pretrained_weights=lemonfm_ckpt,
+            in_channels=in_channels,
+            classes=classes,
+            decoder_channels=int(lemonfm_decoder_channels),
+        )
+
     if smp is None:
         raise ImportError(
             "segmentation_models_pytorch is required but not installed. "
             f"Original import error: {_SMP_IMPORT_ERROR!r}"
         )
 
-    arch = arch.lower()
     local_weight_path = _get_local_smp_weight_path(encoder_name, encoder_weights)
     smp_encoder_weights = None if local_weight_path is not None else encoder_weights
 

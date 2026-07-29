@@ -1,8 +1,8 @@
 # MVAA 三个 Task 最优配置与结果汇总
 
-更新时间：2026-07-09
+更新时间：2026-07-29
 
-本文件汇总当前已记录的线上最优/最稳结果。当前按 DSC 优先策略选择 `v19` 作为主提交候选：Task1 采用 v17，Task2 采用 nnU-Net 5fold，Task3 采用 v15。`v16` 的 Task1 HD/ASD 更好，可作为距离指标备选；`v18` 小连通域删除收益不明显，不推荐。
+本文件汇总当前已记录的线上最优/最稳结果。当前按综合均衡策略选择 `v39` 作为主提交候选：Task1 采用 v25，Task2 采用 v19，Task3 采用 v39。v38 的 Task3 DSC 更高，但 HD/ASD 明显差于 v39，因此只作为 DSC 激进候选。
 
 ## 总览
 
@@ -10,9 +10,9 @@
 
 | Task | 推荐版本 | 配置摘要 | DSC | HD | ASD | 判断 |
 |---|---|---|---:|---:|---:|---|
-| task1_ct | v17 | nnU-Net v2 5fold ensemble | 0.857539 | 4.631175 | 0.279265 | 当前按 DSC 选择的 Task1 最优；v16 HD/ASD 更好 |
+| task1_ct | v25 | Dataset111 pseudo-top100 nnU-Net v2 5fold ensemble | 0.857813 | 4.671629 | 0.274123 | 当前 Task1 DSC/ASD 最优；v16/v37 HD 更好 |
 | task2_tee | v19 | nnU-Net v2 5fold ensemble | 0.846325 | 11.196889 | 0.640635 | 当前 Task2 DSC/ASD 最佳；v14 HD 略好 |
-| task3_vid | v15 | Unet++ ResNet34 ImageNet bestcfg, threshold 0.285 | 0.770197 | 95.627329 | 14.537786 | 当前最均衡 Task3 |
+| task3_vid | v39 | v35 五模型 ensemble + LemonFM gated branch, threshold 0.36 | 0.806144 | 72.862321 | 12.207524 | 当前 Task3 均衡最优；v38 DSC 更高但距离退化 |
 
 ## Task1 CT
 

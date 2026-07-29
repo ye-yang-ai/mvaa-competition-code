@@ -46,9 +46,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--labeled-root", type=str, default=str(REPO_ROOT / "data" / "reference_data" / "t3_vid" / "train"))
     parser.add_argument("--output-dir", type=str, default=str(REPO_ROOT / "outputs" / "opt" / "task3" / "t3_multiclass_res34_5class_s50"))
 
-    parser.add_argument("--arch", type=str, default="unetplusplus", choices=["unet", "unetplusplus", "fpn", "deeplabv3plus"])
+    parser.add_argument(
+        "--arch",
+        type=str,
+        default="unetplusplus",
+        choices=["unet", "unetplusplus", "fpn", "deeplabv3plus", "lemonfm_fpn"],
+    )
     parser.add_argument("--encoder-name", type=str, default="resnet34")
     parser.add_argument("--encoder-weights", type=str, default="imagenet", choices=["none", "imagenet"])
+    parser.add_argument(
+        "--lemonfm-ckpt",
+        type=str,
+        default=str(REPO_ROOT / "checkpoints" / "pretrained" / "lemonfm" / "lemonfm.pth"),
+    )
+    parser.add_argument("--lemonfm-decoder-channels", type=int, default=128)
     parser.add_argument("--num-classes", type=int, default=5)
     parser.add_argument("--image-size", type=int, nargs=2, default=[448, 800], help="H W")
 
@@ -388,6 +399,8 @@ def main() -> int:
         encoder_weights=encoder_weights,
         in_channels=3,
         classes=int(args.num_classes),
+        lemonfm_ckpt=args.lemonfm_ckpt,
+        lemonfm_decoder_channels=int(args.lemonfm_decoder_channels),
     ).to(device)
     loss_fn = CrossEntropyDiceLoss(
         num_classes=int(args.num_classes),
