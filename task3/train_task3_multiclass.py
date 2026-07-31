@@ -50,7 +50,7 @@ def parse_args() -> argparse.Namespace:
         "--arch",
         type=str,
         default="unetplusplus",
-        choices=["unet", "unetplusplus", "fpn", "deeplabv3plus", "lemonfm_fpn"],
+        choices=["unet", "unetplusplus", "fpn", "deeplabv3plus", "lemonfm_fpn", "lemonfm_upernet"],
     )
     parser.add_argument("--encoder-name", type=str, default="resnet34")
     parser.add_argument("--encoder-weights", type=str, default="imagenet", choices=["none", "imagenet"])

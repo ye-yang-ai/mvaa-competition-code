@@ -1,4 +1,4 @@
-# MVAA 2026 Submission Scores v1-v39
+# MVAA 2026 Submission Scores v1-v45
 
 本文档记录已知线上评测结果。v1-v3 如果没有明确保存到对话中的完整结果，暂不补猜；从有明确结果的版本开始记录。
 
@@ -42,6 +42,12 @@
 | v37 | Task1 Dataset112 pseudo-top200 self-training 5fold + Task2 v19 + Task3 v36 refined | top200 线上未超过 top100/v25；HD 比 v25 改善但 DSC/ASD 下降，不建议替代 v25 Task1 |
 | v38 | Task1 v25 + Task2 v19 + Task3 v35 五模型 ensemble + connected recall rescue | Task3 DSC 刷新最高，但 HD/ASD 明显退化；说明线上 recall rescue 补召回会引入距离风险，不替代 v35 |
 | v39 | Task1 v25 + Task2 v19 + Task3 v35 五模型 ensemble + LemonFM gated branch | LemonFM 权重 `0.10`、threshold `0.36`，presence gate 只作用于 LemonFM 分支；Task3 相对 v35 三项小幅全胜，当前均衡主提交 |
+| v40 | Task1 15-fold weighted probability ensemble + Task2 v19 + Task3 v35 | Task1 使用 Dataset101/Dataset111/Dataset112 三组 5fold，组权重 `0.25/0.50/0.25`；Task1 DSC/ASD 刷新当前最好，当前 Task1 主组件 |
+| v41 | Task1 v40 + Task2 v19 + Task3 v39 | 组件最优合并包；已生成 submission，待线上评测；预期为当前最强均衡主提交 |
+| v42 | Task1 15-fold `0.20/0.60/0.20` + Task2 v19 + Task3 v39 | Task1 权重搜索候选；提高 top100 权重，DSC/ASD 优先；已生成 submission，待线上评测 |
+| v43 | Task1 15-fold `0.30/0.55/0.15` + Task2 v19 + Task3 v39 | Task1 权重搜索候选；提高 original、降低 top200，体积变化最中性；已生成 submission，待线上评测 |
+| v44 | Task1 15-fold `0.30/0.50/0.20` + Task2 v19 + Task3 v39 | Task1 权重搜索候选；相对 v40 改动最小，低风险对照；已生成 submission，待线上评测 |
+| v45 | Task1 15-fold `0.20/0.45/0.35` + Task2 v19 + Task3 v39 | Task1 权重搜索候选；增强 top200 多样性，偏 HD 赌博；已生成 submission，待线上评测 |
 
 ## 总表
 
@@ -154,6 +160,9 @@
 | v39 | task1_ct | 0.857813 | 4.671629 | 0.274123 | 沿用 v35/v25，结果完全一致，num_cases 30，missing_cases 0 |
 | v39 | task2_tee | 0.846325 | 11.196889 | 0.640635 | 沿用 v35/v19，结果完全一致，num_cases 20，missing_cases 0 |
 | v39 | task3_vid | 0.806144 | 72.862321 | 12.207524 | v35 五模型 ensemble + LemonFM formal s52 小权重分支，权重 `0.27/0.19/0.17/0.1275/0.1425/0.10`，threshold `0.36`，presence gate 只清 LemonFM 分支；相对 v35，DSC `+0.001252`、HD `-0.925518`、ASD `-0.041379`，当前 Task3 均衡最好 |
+| v40 | task1_ct | 0.859038 | 4.669016 | 0.273413 | Dataset101/Dataset111/Dataset112 15-fold weighted probability ensemble，组权重 `0.25/0.50/0.25`；相对 v25/top100，DSC `+0.001225`、HD `-0.002614`、ASD `-0.000711`，Task1 DSC/ASD 当前最好 |
+| v40 | task2_tee | 0.846325 | 11.196889 | 0.640635 | 沿用 v19，结果完全一致，num_cases 20，missing_cases 0 |
+| v40 | task3_vid | 0.804892 | 73.787839 | 12.248903 | 沿用 v35，结果完全一致，num_cases 48，missing_cases 0 |
 
 ## Task1 对比
 
@@ -166,6 +175,7 @@
 | v25 | Dataset111 pseudo-top100 self-training 5fold `checkpoint_best.pth` ensemble | 0.857813 | 4.671629 | 0.274123 | DSC/ASD 当前最好；HD 比 v17/v19 略差，比 v16 差更多 |
 | v31 | Dataset111 pseudo-top100 self-training 5fold `checkpoint_final.pth` ensemble | 0.857389 | 4.671147 | 0.275189 | 相对 v25 best：DSC `-0.000424`、HD `-0.000482`、ASD `+0.001066`；不推荐替代 v25 |
 | v37 | Dataset112 pseudo-top200 self-training 5fold `checkpoint_best.pth` ensemble | 0.857556 | 4.636551 | 0.276466 | 相对 v25/top100：DSC `-0.000257`、HD `-0.035078`、ASD `+0.002342`；本地验证提升未线上泛化，不推荐替代 v25 |
+| v40 | Dataset101/Dataset111/Dataset112 15-fold weighted probability ensemble `0.25/0.50/0.25` | 0.859038 | 4.669016 | 0.273413 | 相对 v25/top100：DSC `+0.001225`、HD `-0.002614`、ASD `-0.000711`；当前 Task1 最优 |
 
 ## Task2 对比
 
@@ -209,15 +219,19 @@
 
 ## 当前结论
 
-当前按组件最优策略，**v39 = v25 Task1 + v19 Task2 + v35 五模型 Task3 ensemble + LemonFM gated branch** 是新的均衡主提交。v39 相对 v35 的 Task3 三项同时改善：DSC `+0.001252`，HD `-0.925518`，ASD `-0.041379`。提升幅度不大，但方向非常干净，说明 LemonFM 分支在线上有少量互补信息，presence gate 把它限制在低风险范围内。
+当前按组件最优策略，Task1 主组件应从 v25/top100 切到 **v40 15-fold weighted probability ensemble**。v40 的 Task1 相对 v25/top100，DSC `+0.001225`，HD `-0.002614`，ASD `-0.000711`，这是目前 Task1 最干净的一次线上增量：重叠和平均边界都变好，最坏距离也没有牺牲。
+
+完整提交层面，v40 这包使用的是 **v40 Task1 + v19 Task2 + v35 Task3**，因此它验证的是 Task1 15-fold 的收益；但 Task3 仍略弱于 v39。已生成的 **v41 = v40 Task1 + v19 Task2 + v39 Task3 LemonFM gated branch** 是当前组件最优合并包，待线上评测确认。
+
+v39 仍是当前已记录包里的 Task3 均衡最好配置。v39 相对 v35 的 Task3 三项同时改善：DSC `+0.001252`，HD `-0.925518`，ASD `-0.041379`。提升幅度不大，但方向非常干净，说明 LemonFM 分支在线上有少量互补信息，presence gate 把它限制在低风险范围内。
 
 v38 仍是当前 Task3 最高 DSC：`0.808549`，比 v39 高 `+0.002405`；但 v38 的 HD/ASD 明显更差，分别比 v39 高 `+26.529684` 和 `+1.234258`。因此如果只赌 DSC，v38 可以作为激进候选；如果按 DSC/HD/ASD 综合，v39 明显更稳，应优先作为主提交。
 
-v35 到 v39 的演进说明：五模型 ensemble 的主体仍然是最强骨架，LemonFM 不适合作为主模型，但可以作为小权重补充分支。v39 使用 `0.10` LemonFM 权重和 `0.36` threshold，相当于略微降低最终阈值并加入一小部分手术视频域特征；presence gate 只清 LemonFM 分支，不会清空最终 ensemble，因此没有像 recall rescue 那样引入明显远端风险。
+v35 到 v39 的演进说明：五模型 ensemble 的主体仍然是最强骨架，LemonFM 不适合作为主模型，但可以作为小权重补充分支。v39 使用 `0.10` LemonFM 权重和 `0.36` threshold，相当于略微降低最终阈值并加入一小部分手术视频域特征；presence gate 只清 LemonFM 分支，不会清空最终 ensemble，因此没有像 recall rescue 那样引入明显远端风险。Task1 从 v25 到 v40 的演进说明：继续扩大伪标签训练集到 top200 单独提交并不优，但把 original/top100/top200 三组模型做概率层 ensemble 可以吃到模型多样性，说明线上主要收益来自互补而不是简单更多伪标签。
 
 v34 验证了 ResNet34_s49 的角色：它单独提交时 Task3 DSC 只有 `0.749109`，明显低于 v15/v29/v30/v35，但 HD 达到 `85.364217`，比 v15 进一步改善 `-10.263111`。因此 ResNet34_s49 不适合单独主用，但非常适合作为 ensemble 中的距离稳定器。v33 证明当前第一版纯 ROI refine 替代方案不可行：相对 v30，Task3 DSC 大幅下降 `-0.085540`，HD 变差 `+9.560673`，ASD 变差 `+5.274399`，应抛弃该路线。v32 相对 v30 的 Task3 DSC 仅下降 `-0.000273`，HD 大幅改善 `-8.949541`，但 ASD 变差 `+0.885730`，说明 Cutie 确实修掉了一部分远端极端误差，但当前融合/门控可能让平均边界距离变粗。v25 证明 Task1 自训练有效：相对 v17/v19，Task1 DSC 提高 `+0.000274`，ASD 改善 `-0.005141`，但 HD 增加 `+0.040455`；相对 v16，DSC 提高 `+0.000473`，ASD 改善 `-0.003942`，但 HD 增加 `+0.088447`。因此如果按 DSC/ASD 优先，Task1 应切到 v25；如果极端重视 HD，Task1 仍可保留 v16。
 
-当前已提交的完整包里，v39 是新的 Task3 和整体均衡主提交；v35 退为最重要的主体基线，v38 是 DSC 激进候选，v29/v30 是历史强基线，v32 是 Cutie 方向的 HD 对照包，v34 是 ResNet34_s49 单模型定位实验，v33 是 ROI refine 失败包。下一步 Task3 优化应围绕 v39 做小范围 LemonFM 权重/threshold 搜索，或等 multiclass 模型完成后测试是否能作为 line-aware 分支加入 v39。
+当前已提交且有线上结果的完整包里，v40 是 Task1 最优验证包，v39 是 Task3 和整体均衡主提交，v35 退为最重要的主体基线，v38 是 DSC 激进候选，v29/v30 是历史强基线，v32 是 Cutie 方向的 HD 对照包，v34 是 ResNet34_s49 单模型定位实验，v33 是 ROI refine 失败包。v41 已生成，组合为 `v40 Task1 15-fold + v19 Task2 + v39 Task3`，预期会成为新的均衡主提交。
 
 当前 v23 完整包线上结果：
 
@@ -257,11 +271,13 @@ v25 相比 v17/v19 只改变 Task1：使用 Dataset111 pseudo-top100 self-traini
 
 v37 相比 v25 只改变 Task1 伪标签数量：从 top100 扩到 top200。线上 Task1 DSC 下降 `-0.000257`，ASD 变差 `+0.002342`，HD 改善 `-0.035078`。这说明更大的 pseudo set 在本地验证上看起来更好，但线上泛化不如 top100，推测新增伪标签引入了轻微噪声或分布偏移。除非特别追求 Task1 HD，否则不建议使用 top200 替代 v25/top100。
 
-| Task1 Metric | v15 | v16 final | v17 best | v18 post | v25 pseudo-top100 | v37 pseudo-top200 | 当前最好 |
-|---|---:|---:|---:|---:|---:|---:|---|
-| DSC | 0.810562 | 0.857340 | 0.857539 | 0.857534 | 0.857813 | 0.857556 | v25 |
-| HD | 6.902283 | 4.583182 | 4.631175 | 4.603581 | 4.671629 | 4.636551 | v16 |
-| ASD | 0.396594 | 0.278065 | 0.279265 | 0.280489 | 0.274123 | 0.276466 | v25 |
+v40 相比 v25 只改变 Task1 推理融合：把 Dataset101 original、Dataset111 pseudo-top100、Dataset112 pseudo-top200 三组 5fold 概率做 15-fold weighted ensemble，组权重为 `0.25/0.50/0.25`。线上 Task1 DSC 提高 `+0.001225`，HD 改善 `-0.002614`，ASD 改善 `-0.000711`；相对 v37/top200，DSC 提高 `+0.001482`，ASD 改善 `-0.003053`，但 HD 变差 `+0.032465`。结论是 top200 不适合单独替代 top100，但它作为低权重互补分支有价值；当前 Task1 主线应采用 v40 15-fold ensemble。
+
+| Task1 Metric | v15 | v16 final | v17 best | v18 post | v25 pseudo-top100 | v37 pseudo-top200 | v40 15-fold | 当前最好 |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| DSC | 0.810562 | 0.857340 | 0.857539 | 0.857534 | 0.857813 | 0.857556 | 0.859038 | v40 |
+| HD | 6.902283 | 4.583182 | 4.631175 | 4.603581 | 4.671629 | 4.636551 | 4.669016 | v16 |
+| ASD | 0.396594 | 0.278065 | 0.279265 | 0.280489 | 0.274123 | 0.276466 | 0.273413 | v40 |
 
 | Task2 Metric | v10 | v14/v15 | Delta |
 |---|---:|---:|---:|
@@ -408,6 +424,121 @@ task3_vid: DSC 0.7701966979705538, HD 95.62732850814587, ASD 14.537786225800227
 ```
 
 判断：v19 是 Task2 的明确 DSC 跃升版本。相对 v14/v17/v18，Task2 DSC 提高约 `+0.032049`，ASD 降低约 `-0.051741`，但 HD 增加约 `+0.292778`。因此按 DSC 或 DSC+ASD 优先，v19 是当前 Task2 最优；如果单独追求 Task2 HD，v14 仍略好。
+
+## v42-v45 Task1 权重搜索候选
+
+这些版本只改变 Task1 的 15-fold 概率融合权重；Task2 均沿用 v19，Task3 均沿用 v39。因此线上差异应主要来自 Task1。
+
+| Version | Dataset101 original | Dataset111 top100 | Dataset112 top200 | 相对 v40 Task1 差异 | 提交优先级 |
+|---|---:|---:|---:|---|---|
+| v42 | 0.20 | 0.60 | 0.20 | 30 cases changed，`8745` voxels，volume delta `-725` | 第一梯队，DSC/ASD 优先，最值得先试 |
+| v43 | 0.30 | 0.55 | 0.15 | 30 cases changed，`7477` voxels，volume delta `+121` | 第一梯队，最均衡，体积变化最中性 |
+| v44 | 0.30 | 0.50 | 0.20 | 30 cases changed，`3530` voxels，volume delta `+354` | 低风险对照，改动最小 |
+| v45 | 0.20 | 0.45 | 0.35 | 30 cases changed，`8134` voxels，volume delta `-234` | 激进候选，测试 top200 的 HD/边界互补 |
+
+文件：
+
+| Version | submission zip |
+|---|---|
+| v42 | `outputs/submissions/submit_v42_task1_15fold_w020_060_020_task2_v19_task3_v39/submission.zip` |
+| v43 | `outputs/submissions/submit_v43_task1_15fold_w030_055_015_task2_v19_task3_v39/submission.zip` |
+| v44 | `outputs/submissions/submit_v44_task1_15fold_w030_050_020_task2_v19_task3_v39/submission.zip` |
+| v45 | `outputs/submissions/submit_v45_task1_15fold_w020_045_035_task2_v19_task3_v39/submission.zip` |
+
+判断：如果提交机会很有限，优先顺序建议为 **v43 -> v42 -> v44 -> v45**。v43 在提高 top100 权重的同时降低 top200 噪声，且体积变化几乎中性；v42 更偏向 top100，可能继续追 DSC/ASD；v44 太接近 v40，适合作低风险确认；v45 是检验 top200 是否能改善 HD 的激进候选。
+
+如果只按线上分数潜力，v43 仍是权重搜索里最值得尝试的 15-fold 候选。但考虑最终 Docker 构建和复现稳定性，最终 safe 上传包已切回 Task1 5-fold v25：
+
+```text
+outputs/submissions/final_submission_safe_task1_5fold_v25_task2_v19_task3_v39/submission.zip
+```
+
+它是 v39 的拷贝，组合为 `Task1 v25 5-fold + Task2 v19 + Task3 v39`，用于最后 Docker-safe 提交；如果还有额外线上提交机会且不考虑 Docker 复现风险，备选顺序仍为 v43、v42、v41。
+
+## v41 提交记录
+
+- 线上版本：v41
+- 提交目录：`outputs/submissions/submit_v41_task1_v40_task2_v19_task3_v39/submission`
+- 提交压缩包：`outputs/submissions/submit_v41_task1_v40_task2_v19_task3_v39/submission.zip`
+- 记录文件：`outputs/submissions/submit_v41_task1_v40_task2_v19_task3_v39/checkpoint_record.md`
+- 生成时间：2026-07-29
+- 文件检查：submission 目录共 `101` 个预测文件；zip 根目录为 `t1_ct/`、`t2_tee/`、`t3_vid/`
+- 线上状态：待评测
+
+组成：
+
+| Task | 来源 | 说明 |
+|---|---|---|
+| task1_ct | v40 | Dataset101/Dataset111/Dataset112 15-fold weighted probability ensemble，组权重 `0.25/0.50/0.25` |
+| task2_tee | v19 | Task2 nnU-Net v2 5fold `checkpoint_best.pth` ensemble，无后处理 |
+| task3_vid | v39 | v35 五模型 ensemble + LemonFM gated branch，权重 `0.27/0.19/0.17/0.1275/0.1425/0.10`，threshold `0.36` |
+
+预期线上分项：
+
+```text
+task1_ct:
+  DSC: 0.8590377748947847
+  HD: 4.66901568986599
+  ASD: 0.273412842287325
+  source: v40
+task2_tee:
+  DSC: 0.8463245904808815
+  HD: 11.196888629485855
+  ASD: 0.6406354094949988
+  source: v19
+task3_vid:
+  DSC: 0.806144
+  HD: 72.862321
+  ASD: 12.207524
+  source: v39
+```
+
+判断：v41 是当前组件最优的合并包。它没有重新推理，只把已验证的最佳分项拼到同一个 submission 中；如果平台评测没有缓存或上传异常，结果应等于 v40 的 Task1、v19 的 Task2、v39 的 Task3。相比 v40，v41 只替换 Task3，从 v35 提升到 v39，预期 Task3 DSC `+0.001252`、HD `-0.925518`、ASD `-0.041379`。
+
+## v40 提交记录
+
+- 线上版本：v40
+- 提交目录：`outputs/submissions/submit_v40_task1_15fold_w025_050_025_task2_v19_task3_v35/submission`
+- 提交压缩包：`outputs/submissions/submit_v40_task1_15fold_w025_050_025_task2_v19_task3_v35/submission.zip`
+- 记录文件：`outputs/submissions/submit_v40_task1_15fold_w025_050_025_task2_v19_task3_v35/checkpoint_record.md`
+- 生成时间：2026-07-29
+- 文件检查：submission zip 共 `101` 个文件；zip 根目录为 `t1_ct/`、`t2_tee/`、`t3_vid/`
+- 线上状态：已测评通过，三个 task 均 `ok`，missing_cases 均为 `0`
+
+组成：
+
+| Task | 来源 | 说明 |
+|---|---|---|
+| task1_ct | 15-fold weighted probability ensemble | Dataset101 original 5fold + Dataset111 top100 5fold + Dataset112 top200 5fold，组权重 `0.25/0.50/0.25` |
+| task2_tee | v19 | Task2 nnU-Net v2 5fold `checkpoint_best.pth` ensemble，无后处理 |
+| task3_vid | v35 | 五模型 probability ensemble：`0.30*v15 + 0.20*ResNet34_s49 + 0.20*B4_s42 + 0.15*B5_s42 + 0.15*B5_s44`，threshold `0.40` |
+
+线上结果：
+
+```text
+task1_ct:
+  DSC: 0.8590377748947847
+  HD: 4.66901568986599
+  ASD: 0.273412842287325
+  num_cases: 30
+  missing_cases: 0
+task2_tee:
+  DSC: 0.8463245904808815
+  HD: 11.196888629485855
+  ASD: 0.6406354094949988
+  num_cases: 20
+  missing_cases: 0
+task3_vid:
+  DSC: 0.8048920178068736
+  HD: 73.78783948989879
+  ASD: 12.248903326853858
+  num_cases: 48
+  missing_cases: 0
+```
+
+判断：v40 验证了 Task1 的 15-fold 概率融合是有效增量。相对 v25/top100，Task1 DSC 提高 `+0.001225`，HD 改善 `-0.002614`，ASD 改善 `-0.000711`；相对 v37/top200，DSC 提高 `+0.001482`，ASD 改善 `-0.003053`，但 HD 变差 `+0.032465`；相对 v17 原始 nnU-Net best，DSC 提高 `+0.001499`，ASD 改善 `-0.005852`，HD 变差 `+0.037841`。这说明 top200 单独泛化不如 top100，但作为低权重分支能提供有用多样性；original 模型也能补稳定性。当前 Task1 主组件应切到 v40。
+
+完整包层面，v40 的 Task3 沿用 v35，因此 Task3 不如 v39 的 LemonFM gated branch。下一步如果还有提交机会，应生成 `v40 Task1 + v19 Task2 + v39 Task3` 的组合包，理论上会同时保留当前 Task1 和 Task3 的最优组件。
 
 ## v37 提交记录
 

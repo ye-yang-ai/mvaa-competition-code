@@ -178,6 +178,127 @@ class LemonFMConvNeXtLargeFPN(nn.Module):
         return F.interpolate(logits, size=out_size, mode="bilinear", align_corners=False)
 
 
+class PyramidPoolingModule(nn.Module):
+    def __init__(self, in_channels: int, out_channels: int, pool_scales: tuple[int, ...] = (1, 2, 3, 6)) -> None:
+        super().__init__()
+        self.stages = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.AdaptiveAvgPool2d(scale),
+                    ConvNormAct(int(in_channels), int(out_channels), kernel_size=1),
+                )
+                for scale in pool_scales
+            ]
+        )
+
+    def forward(self, x: torch.Tensor) -> list[torch.Tensor]:
+        size = tuple(int(v) for v in x.shape[-2:])
+        return [F.interpolate(stage(x), size=size, mode="bilinear", align_corners=False) for stage in self.stages]
+
+
+class LemonFMConvNeXtLargeUPerNet(nn.Module):
+    """LemonFM ConvNeXt-Large encoder with a UPerNet-style decoder."""
+
+    encoder_channels = (192, 384, 768, 1536)
+
+    def __init__(
+        self,
+        pretrained_weights: str | Path | None = DEFAULT_LEMONFM_CKPT,
+        in_channels: int = 3,
+        classes: int = 1,
+        decoder_channels: int = 128,
+        pool_scales: tuple[int, ...] = (1, 2, 3, 6),
+    ) -> None:
+        super().__init__()
+        if int(in_channels) != 3:
+            raise ValueError("LemonFM ConvNeXt-Large expects RGB input with in_channels=3.")
+
+        base = torchvision.models.convnext_large(weights=None)
+        base.classifier[2] = nn.Identity()
+        if pretrained_weights is not None:
+            LemonFMConvNeXtLargeFPN._load_lemonfm_weights(base, Path(pretrained_weights))
+
+        self.backbone = base.features
+        c = int(decoder_channels)
+        top_channels = int(self.encoder_channels[-1])
+        self.ppm = PyramidPoolingModule(top_channels, c, pool_scales=pool_scales)
+        self.ppm_bottleneck = ConvNormAct(top_channels + len(pool_scales) * c, c, kernel_size=3)
+
+        self.lateral_convs = nn.ModuleList([nn.Conv2d(ch, c, kernel_size=1) for ch in self.encoder_channels[:-1]])
+        self.fpn_convs = nn.ModuleList([ConvNormAct(c, c, kernel_size=3) for _ in self.encoder_channels[:-1]])
+        self.fpn_bottleneck = ConvNormAct(c * len(self.encoder_channels), c, kernel_size=3)
+        self.seg_head = nn.Conv2d(c, int(classes), kernel_size=1)
+
+    def encoder_parameters(self):
+        return self.backbone.parameters()
+
+    def decoder_parameters(self):
+        for module in (self.ppm, self.ppm_bottleneck, self.lateral_convs, self.fpn_convs, self.fpn_bottleneck, self.seg_head):
+            yield from module.parameters()
+
+    def set_encoder_tail_trainable(self, tail_modules: int) -> list[str]:
+        """Freeze the encoder, then unfreeze the last N ConvNeXt feature modules."""
+        n_tail = max(0, int(tail_modules))
+        for p in self.encoder_parameters():
+            p.requires_grad_(False)
+        if n_tail <= 0:
+            return []
+
+        modules = list(self.backbone.children())
+        start = max(0, len(modules) - n_tail)
+        names = []
+        for idx, module in enumerate(modules[start:], start=start):
+            for p in module.parameters():
+                p.requires_grad_(True)
+            names.append(f"backbone[{idx}]")
+        return names
+
+    def _encoder_features(self, x: torch.Tensor) -> list[torch.Tensor]:
+        x = self.backbone[0](x)
+        x = self.backbone[1](x)
+        f1 = x
+        x = self.backbone[2](x)
+        x = self.backbone[3](x)
+        f2 = x
+        x = self.backbone[4](x)
+        x = self.backbone[5](x)
+        f3 = x
+        x = self.backbone[6](x)
+        x = self.backbone[7](x)
+        f4 = x
+        return [f1, f2, f3, f4]
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        out_size = tuple(int(v) for v in x.shape[-2:])
+        feats = self._encoder_features(x)
+        ppm_out = self.ppm_bottleneck(torch.cat([feats[-1], *self.ppm(feats[-1])], dim=1))
+
+        laterals = [conv(feat) for conv, feat in zip(self.lateral_convs, feats[:-1])]
+        laterals.append(ppm_out)
+        for idx in range(len(laterals) - 1, 0, -1):
+            laterals[idx - 1] = laterals[idx - 1] + F.interpolate(
+                laterals[idx],
+                size=laterals[idx - 1].shape[-2:],
+                mode="bilinear",
+                align_corners=False,
+            )
+
+        fpn_outs = [conv(feat) for conv, feat in zip(self.fpn_convs, laterals[:-1])]
+        fpn_outs.append(laterals[-1])
+        target = tuple(int(v) for v in fpn_outs[0].shape[-2:])
+        fused = torch.cat(
+            [
+                F.interpolate(feat, size=target, mode="bilinear", align_corners=False)
+                if tuple(feat.shape[-2:]) != target
+                else feat
+                for feat in fpn_outs
+            ],
+            dim=1,
+        )
+        logits = self.seg_head(self.fpn_bottleneck(fused))
+        return F.interpolate(logits, size=out_size, mode="bilinear", align_corners=False)
+
+
 if TimmUniversalEncoder is not None:
 
     class TimmUniversalHalfScaleEncoder(TimmUniversalEncoder):
@@ -258,6 +379,13 @@ def get_model(
     arch = arch.lower()
     if arch == "lemonfm_fpn":
         return LemonFMConvNeXtLargeFPN(
+            pretrained_weights=lemonfm_ckpt,
+            in_channels=in_channels,
+            classes=classes,
+            decoder_channels=int(lemonfm_decoder_channels),
+        )
+    if arch == "lemonfm_upernet":
+        return LemonFMConvNeXtLargeUPerNet(
             pretrained_weights=lemonfm_ckpt,
             in_channels=in_channels,
             classes=classes,

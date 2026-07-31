@@ -55,7 +55,7 @@ def parse_args() -> argparse.Namespace:
         "--arch",
         type=str,
         default="unetplusplus",
-        choices=["unet", "unetplusplus", "fpn", "deeplabv3plus", "segformer", "lemonfm_fpn"],
+        choices=["unet", "unetplusplus", "fpn", "deeplabv3plus", "segformer", "lemonfm_fpn", "lemonfm_upernet"],
     )
     parser.add_argument("--encoder-name", type=str, default="efficientnet-b4")
     parser.add_argument("--encoder-weights", type=str, default="none", choices=["none", "imagenet"])
