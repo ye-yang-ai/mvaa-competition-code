@@ -150,6 +150,8 @@ def load_presence_gate(
         "lemonfm_ckpt",
         str(THIS_DIR.parent / "checkpoints" / "pretrained" / "lemonfm" / "lemonfm.pth"),
     )
+    if os.environ.get("MVAA_NO_PRETRAINED_INIT") == "1":
+        lemonfm_ckpt = None
     model = LemonFMPresenceClassifier(
         pretrained_weights=lemonfm_ckpt,
         dropout=float(gate_args.get("dropout", 0.2)),
@@ -241,6 +243,9 @@ def main() -> int:
         encoder_weights = None
     lemonfm_ckpt = train_args.get("lemonfm_ckpt", None)
     lemonfm_decoder_channels = int(train_args.get("lemonfm_decoder_channels", 128))
+    if os.environ.get("MVAA_NO_PRETRAINED_INIT") == "1":
+        encoder_weights = None
+        lemonfm_ckpt = None
 
     image_size = tuple(int(v) for v in train_args.get("image_size", [448, 800]))
     use_imagenet_norm = bool(train_args.get("use_imagenet_norm", True))

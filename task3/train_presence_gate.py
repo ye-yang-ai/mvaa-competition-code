@@ -37,7 +37,7 @@ class LemonFMPresenceClassifier(nn.Module):
 
     def __init__(
         self,
-        pretrained_weights: str | Path = DEFAULT_LEMONFM_CKPT,
+        pretrained_weights: str | Path | None = DEFAULT_LEMONFM_CKPT,
         dropout: float = 0.2,
         hidden_dim: int = 0,
     ) -> None:
@@ -45,7 +45,8 @@ class LemonFMPresenceClassifier(nn.Module):
         base = torchvision.models.convnext_large(weights=None)
         in_features = int(base.classifier[2].in_features)
         base.classifier[2] = nn.Identity()
-        self._load_lemonfm_weights(base, Path(pretrained_weights))
+        if pretrained_weights is not None:
+            self._load_lemonfm_weights(base, Path(pretrained_weights))
 
         if int(hidden_dim) > 0:
             head: nn.Module = nn.Sequential(

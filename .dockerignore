@@ -40,3 +40,9 @@ outputs/**
 !outputs/opt/task3/t3_v35_unetpp_effb5_sup_allframe_s44/
 !outputs/opt/task3/t3_v35_unetpp_effb5_sup_allframe_s44/checkpoints/
 !outputs/opt/task3/t3_v35_unetpp_effb5_sup_allframe_s44/checkpoints/best.pt
+!outputs/opt/task3/t3_lemonfm_fpn_formal_tail2_s52/
+!outputs/opt/task3/t3_lemonfm_fpn_formal_tail2_s52/checkpoints/
+!outputs/opt/task3/t3_lemonfm_fpn_formal_tail2_s52/checkpoints/best.pt
+!outputs/opt/task3/t3_lemonfm_presence_gate_s51/
+!outputs/opt/task3/t3_lemonfm_presence_gate_s51/checkpoints/
+!outputs/opt/task3/t3_lemonfm_presence_gate_s51/checkpoints/best.pt

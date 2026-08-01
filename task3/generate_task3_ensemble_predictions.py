@@ -67,10 +67,11 @@ def build_model(ckpt_path: Path, device: torch.device) -> tuple[torch.nn.Module,
     encoder_weights = train_args.get("encoder_weights", None)
     if isinstance(encoder_weights, str) and encoder_weights.lower() == "none":
         encoder_weights = None
-    if os.environ.get("MVAA_NO_PRETRAINED_INIT") == "1":
-        encoder_weights = None
     lemonfm_ckpt = train_args.get("lemonfm_ckpt", None)
     lemonfm_decoder_channels = int(train_args.get("lemonfm_decoder_channels", 128))
+    if os.environ.get("MVAA_NO_PRETRAINED_INIT") == "1":
+        encoder_weights = None
+        lemonfm_ckpt = None
     model = get_model(
         arch=arch,
         encoder_name=encoder_name,
