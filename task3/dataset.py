@@ -85,6 +85,21 @@ def read_binary_mask_from_label_tar(label_tar_path: Path, target_label: int) -> 
         return (mask_raw == int(target_label)).astype(np.uint8)
 
 
+def read_label_map_from_label_tar(label_tar_path: Path) -> np.ndarray:
+    with tarfile.open(label_tar_path, mode="r") as tf:
+        nii_member = None
+        for member in tf.getmembers():
+            if member.isfile() and member.name.endswith("_Label.nii.gz"):
+                nii_member = member
+                break
+        if nii_member is None:
+            raise FileNotFoundError(f"No _Label.nii.gz found in {label_tar_path}")
+        f = tf.extractfile(nii_member)
+        if f is None:
+            raise FileNotFoundError(f"Failed to extract {nii_member.name} from {label_tar_path}")
+        return _read_nifti_2d_from_bytes(f.read()).astype(np.int16, copy=False)
+
+
 def discover_samples(data_root: str | Path) -> List[Sample]:
     root = Path(data_root)
     if not root.exists():
@@ -339,6 +354,113 @@ class LabeledDataset(torch.utils.data.Dataset):
         }
 
 
+def map_task3_multiclass_label(raw_label: np.ndarray, num_classes: int = 5) -> np.ndarray:
+    out = np.zeros(raw_label.shape, dtype=np.uint8)
+    out[raw_label == 10] = 1
+    if int(num_classes) <= 2:
+        return out
+
+    out[raw_label == 7] = 2
+    if int(num_classes) <= 3:
+        hard_neg = np.isin(raw_label, [1, 2, 3, 4, 5, 6, 8, 9, 11, 12, 13, 14, 15, 16])
+        out[hard_neg] = 3
+        out[raw_label == 7] = 2
+        out[raw_label == 10] = 1
+        return out
+
+    instruments = np.isin(raw_label, [1, 2, 3, 4, 5, 6, 8, 15, 16])
+    tissue = np.isin(raw_label, [9, 11, 12, 13, 14])
+    out[instruments] = 3
+    out[tissue] = 4 if int(num_classes) >= 5 else 3
+    out[raw_label == 7] = 2
+    out[raw_label == 10] = 1
+    return out
+
+
+class MultiClassLabeledDataset(torch.utils.data.Dataset):
+    def __init__(
+        self,
+        samples: Sequence[Sample],
+        image_size: Tuple[int, int],
+        num_classes: int,
+        train: bool,
+        cache_labels: bool,
+        use_imagenet_norm: bool,
+        seed: int,
+    ) -> None:
+        self.samples = list(samples)
+        self.image_size = image_size
+        self.num_classes = int(num_classes)
+        self.train = bool(train)
+        self.cache_labels = bool(cache_labels)
+        self.use_imagenet_norm = bool(use_imagenet_norm)
+        self.rng = random.Random(seed)
+        self._label_cache: Dict[Path, np.ndarray] = {}
+
+        if self.cache_labels:
+            for s in self.samples:
+                self._label_cache[s.label_path] = self._read_label(s)
+        self.sample_mitral_ratio = [float((self._load_label(s) == 1).mean()) for s in self.samples]
+        self.sample_line_ratio = [float((self._load_label(s) == 2).mean()) for s in self.samples]
+
+    def __len__(self) -> int:
+        return len(self.samples)
+
+    def _read_label(self, sample: Sample) -> np.ndarray:
+        if sample.label_kind == "bin_png":
+            arr = np.asarray(Image.open(sample.label_path).convert("L"), dtype=np.uint8)
+            raw = np.zeros(arr.shape, dtype=np.int16)
+            raw[arr > 127] = 10
+            return map_task3_multiclass_label(raw, num_classes=self.num_classes)
+        if sample.label_kind == "tar":
+            raw = read_label_map_from_label_tar(sample.label_path)
+            return map_task3_multiclass_label(raw, num_classes=self.num_classes)
+        raise ValueError(f"Unsupported label kind: {sample.label_kind}")
+
+    def _load_label(self, sample: Sample) -> np.ndarray:
+        if sample.label_path in self._label_cache:
+            return self._label_cache[sample.label_path]
+        return self._read_label(sample)
+
+    def __getitem__(self, idx: int):
+        s = self.samples[idx]
+        image = np.asarray(Image.open(s.image_path).convert("RGB"), dtype=np.float32) / 255.0
+        label = self._load_label(s).astype(np.uint8)
+
+        if self.train:
+            hflip = self.rng.random() < 0.5
+            vflip = self.rng.random() < 0.3
+            rot_k = self.rng.randint(0, 3) if self.rng.random() < 0.4 else 0
+            image = _apply_geom(image, hflip=hflip, vflip=vflip, rot_k=rot_k)
+            label = _apply_geom(label[..., None], hflip=hflip, vflip=vflip, rot_k=rot_k)[..., 0]
+            image = _photo_aug_weak(image, self.rng)
+            if self.rng.random() < 0.2:
+                noise = np.random.normal(0.0, 0.02, size=image.shape).astype(np.float32)
+                image = np.clip(image + noise, 0.0, 1.0)
+
+        image_t = _to_tensor_chw(image)
+        label_t = torch.from_numpy(label[None, ...].astype(np.int64))
+
+        if tuple(image_t.shape[1:]) != self.image_size:
+            image_t = _resize_chw(image_t, self.image_size, mode="bilinear")
+            label_t = F.interpolate(label_t.float().unsqueeze(0), size=self.image_size, mode="nearest").squeeze(0).long()
+        else:
+            label_t = label_t.long()
+
+        image_t = _normalize_if_needed(image_t, self.use_imagenet_norm)
+        return {
+            "image": image_t,
+            "label": label_t.squeeze(0),
+            "mitral": (label_t == 1).float(),
+            "line": (label_t == 2).float(),
+            "video_id": s.video_id,
+            "frame_idx": s.frame_idx,
+            "image_path": str(s.image_path),
+            "label_path": str(s.label_path),
+            "label_kind": s.label_kind,
+        }
+
+
 class UnlabeledPairDataset(torch.utils.data.Dataset):
     def __init__(
         self,
@@ -381,4 +503,91 @@ class UnlabeledPairDataset(torch.utils.data.Dataset):
             "weak": weak_t,
             "strong": strong_t,
             "image_path": str(p),
+        }
+
+
+class TemporalPairDataset(torch.utils.data.Dataset):
+    def __init__(
+        self,
+        samples: Sequence[Sample],
+        image_size: Tuple[int, int],
+        target_label: int,
+        cache_masks: bool,
+        use_imagenet_norm: bool,
+        seed: int,
+        max_frame_gap: int = 60,
+    ) -> None:
+        self.samples = list(samples)
+        self.image_size = image_size
+        self.target_label = int(target_label)
+        self.cache_masks = bool(cache_masks)
+        self.use_imagenet_norm = bool(use_imagenet_norm)
+        self.rng = random.Random(seed)
+        self.max_frame_gap = int(max_frame_gap)
+        self._mask_cache: Dict[Path, np.ndarray] = {}
+
+        if self.cache_masks:
+            for s in self.samples:
+                self._mask_cache[s.label_path] = self._read_mask(s)
+
+        by_video: Dict[str, List[int]] = {}
+        for idx, sample in enumerate(self.samples):
+            by_video.setdefault(sample.video_id, []).append(idx)
+        for video_id in list(by_video):
+            by_video[video_id] = sorted(by_video[video_id], key=lambda i: self.samples[i].frame_idx)
+
+        pairs: List[Tuple[int, int]] = []
+        for idxs in by_video.values():
+            for left, right in zip(idxs[:-1], idxs[1:]):
+                gap = abs(int(self.samples[right].frame_idx) - int(self.samples[left].frame_idx))
+                if self.max_frame_gap <= 0 or gap <= self.max_frame_gap:
+                    pairs.append((left, right))
+        self.pairs = pairs
+
+    def __len__(self) -> int:
+        return len(self.pairs)
+
+    def _read_mask(self, sample: Sample) -> np.ndarray:
+        if sample.label_kind == "bin_png":
+            arr = np.asarray(Image.open(sample.label_path).convert("L"), dtype=np.uint8)
+            return (arr > 127).astype(np.uint8)
+        if sample.label_kind == "tar":
+            return read_binary_mask_from_label_tar(sample.label_path, target_label=self.target_label)
+        raise ValueError(f"Unsupported label kind: {sample.label_kind}")
+
+    def _load_mask(self, sample: Sample) -> np.ndarray:
+        if sample.label_path in self._mask_cache:
+            return self._mask_cache[sample.label_path]
+        return self._read_mask(sample)
+
+    def _load_item(self, sample: Sample) -> tuple[torch.Tensor, torch.Tensor]:
+        image = np.asarray(Image.open(sample.image_path).convert("RGB"), dtype=np.float32) / 255.0
+        mask = self._load_mask(sample).astype(np.float32)
+
+        image_t = _to_tensor_chw(image)
+        mask_t = torch.from_numpy(mask[None, ...]).float()
+
+        if tuple(image_t.shape[1:]) != self.image_size:
+            image_t = _resize_chw(image_t, self.image_size, mode="bilinear")
+            mask_t = F.interpolate(mask_t.unsqueeze(0), size=self.image_size, mode="nearest").squeeze(0)
+
+        image_t = _normalize_if_needed(image_t, self.use_imagenet_norm)
+        return image_t, mask_t
+
+    def __getitem__(self, idx: int):
+        left_idx, right_idx = self.pairs[idx]
+        left = self.samples[left_idx]
+        right = self.samples[right_idx]
+        left_image, left_label = self._load_item(left)
+        right_image, right_label = self._load_item(right)
+        return {
+            "image_a": left_image,
+            "label_a": left_label,
+            "image_b": right_image,
+            "label_b": right_label,
+            "video_id": left.video_id,
+            "frame_idx_a": left.frame_idx,
+            "frame_idx_b": right.frame_idx,
+            "image_path_a": str(left.image_path),
+            "image_path_b": str(right.image_path),
         }
